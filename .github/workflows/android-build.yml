@@ -13,18 +13,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Используем готовый официальный экшен для сборки Fyne-приложений
-      # Он сам настроит Go, Docker и всё необходимое без ручных команд "go install"
-      - name: Build Fyne Application
-        uses: fyne-io/action-fyne-cross@v1
+      # 2. Настраиваем компилятор Go 1.27.2
+      - name: Set up Go 1.27.2
+        uses: actions/setup-go@v5
         with:
-          target: android
-          arch: arm64
-          app-id: com.dahua.scanner
+          go-version: '1.27.2'
+          cache: true
 
-      # 3. Публикуем готовый APK-файл в артефакты
+      # 3. Скачиваем официальную утилиту fyne-cross напрямую
+      - name: Install fyne-cross
+        run: |
+          go install github.com/fyne-io/fyne-cross@latest
+
+      # 4. Запускаем компиляцию внутри Docker (в Ubuntu он предустановлен)
+      - name: Package APK for Android (ARM64)
+        run: |
+          $(go env GOPATH)/bin/fyne-cross android --arch arm64 --appID com.dahua.scanner
+
+      # 5. Выкладываем готовый APK в артефакты
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-app-arm64
-          path: container-dist/android/*.apk
+          path: fyne-cross/dist/android/*.apk
