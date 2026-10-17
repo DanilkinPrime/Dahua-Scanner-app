@@ -20,15 +20,15 @@ jobs:
           go-version: '1.27.2'
           cache: true
 
-      # 3. Скачиваем официальную утилиту fyne-cross напрямую
+      # 3. Скачиваем утилиту fyne-cross
       - name: Install fyne-cross
         run: |
-          go install github.com/fyne-io/fyne-cross@latest
+          go install ://github.com
 
-      # 4. Запускаем компиляцию внутри Docker (в Ubuntu он предустановлен)
+      # 4. Запускаем компиляцию с правильным флагом -app-id
       - name: Package APK for Android (ARM64)
         run: |
-          $(go env GOPATH)/bin/fyne-cross android --arch arm64 --appID com.dahua.scanner
+          $(go env GOPATH)/bin/fyne-cross android -arch arm64 -app-id com.dahua.scanner
 
       # 5. Выкладываем готовый APK в артефакты
       - name: Upload APK Artifact
