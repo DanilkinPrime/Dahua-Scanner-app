@@ -38,4 +38,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-app-arm64
-          path: fyne-cross/dist/android/*.apk
+          path: fyne-cross/dist/**/*.apk
