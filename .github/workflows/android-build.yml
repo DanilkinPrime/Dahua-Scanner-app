@@ -18,13 +18,14 @@ jobs:
           go-version: '1.27.2'
           cache: true
 
-      # ИСПРАВЛЕНО: Убран протокол https://, теперь путь для Go указан правильно
       - name: Install fyne-cross
-        run: go install ://github.com
+        run: |
+          go env -w GO111MODULE=on
+          go install ://github.com
 
       - name: Package APK for Android (ARM64)
         run: |
-          fyne-cross android --arch arm64 --appID com.dahua.scanner
+          /home/runner/go/bin/fyne-cross android --arch arm64 --appID com.dahua.scanner
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
