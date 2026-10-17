@@ -23,7 +23,7 @@ jobs:
       # 3. Скачиваем утилиту fyne-cross
       - name: Install fyne-cross
         run: |
-          go install ://github.com
+          go install github.com/fyne-io/fyne-cross@latest
 
       # 4. Запускаем компиляцию с правильным флагом -app-id
       - name: Package APK for Android (ARM64)
