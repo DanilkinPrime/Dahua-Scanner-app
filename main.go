@@ -15,8 +15,6 @@ import (
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 
-	// Импортируем подпапку p2pwn. 
-	// Если у вас в go.mod модуль называется по-другому, замените "p2pwn" на имя_модуля/p2pwn
 	"Scanner/p2pwn"
 )
 
