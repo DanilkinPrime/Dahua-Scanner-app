@@ -6,8 +6,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"://github.com"
 )
 
 // Обратные вызовы для связи планировщика с главным Android UI кодом
