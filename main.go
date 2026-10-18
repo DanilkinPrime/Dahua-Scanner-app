@@ -2,7 +2,6 @@ package main
 
 import (
 	"io"
-	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
