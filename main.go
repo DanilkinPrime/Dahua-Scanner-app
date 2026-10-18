@@ -17,7 +17,7 @@ import (
 
 	// Импортируем подпапку p2pwn. 
 	// Если у вас в go.mod модуль называется по-другому, замените "p2pwn" на имя_модуля/p2pwn
-	"p2pwn/p2pwn"
+	"Scanner/p2pwn"
 )
 
 type UIProgress struct {
