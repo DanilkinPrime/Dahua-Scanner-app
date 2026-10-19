@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -28,43 +28,43 @@ func main() {
 
 	// Поля текстового ввода для НАСТРОЕК
 	threadsEntry := widget.NewEntry()
-	threadsEntry.SetText("50") // 50-100 потоков — оптимально для мобильного Wi-Fi
+	threadsEntry.SetText("50") // Оптимально для мобильного Wi-Fi
 	threadsEntry.SetPlaceHolder("Максимум 1000")
 
 	portEntry := widget.NewEntry()
 	portEntry.SetText("37777")
-	portEntry.SetPlaceHolder("Максимум 3 пример 37777, 8000, 80")
+	portEntry.SetPlaceHolder("Один порт (например: 37777, 8000)")
 
 	outputEntry := widget.NewEntry()
 	outputEntry.SetText("serials")
-	outputEntry.SetPlaceHolder("Имя любое")
+	outputEntry.SetPlaceHolder("Имя любого файла")
 
 	// Многострочное поле для вывода логов работы сканера
 	logContent := widget.NewMultiLineEntry()
-	logContent.SetPlaceHolder("Логи")
+	logContent.SetPlaceHolder("Здесь будут отображаться шаги работы...")
 	logContent.Disable()
 
-	// Кнопка выбора файла и запуска процесса (С системным диалогом сохранения)
+	// Кнопка выбора файла и запуска процесса
 	filePickerButton := widget.NewButton("Запуск", func() {
-		// 1. Открываем диалог выбора ВХОДНОГО файла
+		// 1. Открываем диалог выбора ВХОДНОГО файла с IP-адресами
 		fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 			if err != nil {
 				statusLabel.SetText("Ошибка: " + err.Error())
 				return
 			}
 			if reader == nil {
-				statusLabel.SetText("Отменено пользователем")
+				statusLabel.SetText("Выбор файла отменен")
 				return
 			}
 			
-			statusLabel.SetText("Запуск фонового потока...")
-			logContent.SetText("[SYSTEM] Начало обработки...\n")
+			statusLabel.SetText("Обработка файла...")
+			logContent.SetText("[SYSTEM] Файл успешно выбран. Инициализация...\n")
 
-			// ПЕРЕНОСИМ ВСЕ В ФОН, ЧТОБЫ АНДРОИД НЕ ИНТЕРПРЕТИРОВАЛ ЭТО КАК ЗАВИСАНИЕ
+			// Полностью изолируем чтение и парсинг в фоне, чтобы интерфейс не вис
 			go func(r fyne.URIReadCloser) {
 				defer r.Close()
 
-				appendLog(logContent, "[SYSTEM] Чтение данных из файла...")
+				appendLog(logContent, "[SYSTEM] Чтение сырых данных из файла...")
 				data, err := io.ReadAll(r)
 				if err != nil {
 					statusLabel.SetText("Не удалось прочитать файл")
@@ -72,29 +72,23 @@ func main() {
 					return
 				}
 
-				appendLog(logContent, fmt.Sprintf("[SYSTEM] Прочитано %d байт. Начинаем парсинг параметров...", len(data)))
+				appendLog(logContent, fmt.Sprintf("[SYSTEM] Прочитано %d байт. Очистка строк от символов \\r...", len(data)))
 
-				// ДИНАМИЧЕСКИЙ ПАРСИНГ НАСТРОЕК
+				// Парсинг потоков
 				concurrency, err := strconv.Atoi(strings.TrimSpace(threadsEntry.Text))
-				if err != nil || concurrency > 1000 {
+				if err != nil || concurrency < 1 {
+					concurrency = 50
+					threadsEntry.SetText("50")
+				} else if concurrency > 1000 {
 					concurrency = 1000
 					threadsEntry.SetText("1000")
 				}
 
-				var ports []string
-				for _, p := range strings.Split(portEntry.Text, ",") {
-					p = strings.TrimSpace(p)
-					if p != "" {
-						ports = append(ports, p)
-					}
-				}
-				if len(ports) > 3 {
-					ports = ports[:3]
-					portEntry.SetText(strings.Join(ports, ", "))
-					appendLog(logContent, "[SYSTEM] Внимание: Ограничение максимум 3 порта. Лишние порты отброшены.")
-				}
-				if len(ports) == 0 {
-					ports = append(ports, "37777")
+				// Парсинг базового端口 для структуры ironscan.Options
+				basePort, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
+				if err != nil || basePort <= 0 || basePort > 65535 {
+					basePort = 37777
+					portEntry.SetText("37777")
 				}
 
 				outNameBase := strings.TrimSpace(outputEntry.Text)
@@ -102,107 +96,108 @@ func main() {
 					outNameBase = "serials"
 				}
 
-				// Парсинг целей
-				appendLog(logContent, "[SYSTEM] Парсинг IP-адресов и диапазонов...")
+				// Нормализуем текст (удаляем \r, превращая Windows-строки в Unix-строки)
+				cleanText := strings.ReplaceAll(string(data), "\r", "")
+				lines := strings.Split(cleanText, "\n")
+
 				var finalTargets []string
-				lines := strings.Split(string(data), "\n")
-				
+				appendLog(logContent, "[SYSTEM] Запуск парсинга целей через подсистему Krushitel...")
+
 				for i, line := range lines {
 					line = strings.TrimSpace(line)
 					if line == "" || strings.HasPrefix(line, "#") {
 						continue
 					}
-					
-					// Вызываем парсер из вашего пакета Krushitel
+
+					// Вызов вашего парсера из ironscan
 					parsedLines := ironscan.ParseTarget(line)
 					if len(parsedLines) == 0 {
-						// Логируем подозрительные строки, которые парсер пропустил
-						appendLog(logContent, fmt.Sprintf("[WARN] Строка %d не распарсена: %s", i+1, line))
+						appendLog(logContent, fmt.Sprintf("[WARN] Строка %d пропущена парсером: %s", i+1, line))
 						continue
 					}
 
 					for _, parsed := range parsedLines {
-						if strings.Contains(parsed, ":") {
+						// Если порт уже указан в строке, берем как есть, иначе приклеиваем выбранный
+						if _, _, err := net.SplitHostPort(parsed); err == nil {
 							finalTargets = append(finalTargets, parsed)
-							continue
-						}
-						for _, port := range ports {
-							finalTargets = append(finalTargets, fmt.Sprintf("%s:%s", parsed, port))
+						} else {
+							finalTargets = append(finalTargets, net.JoinHostPort(parsed, strconv.Itoa(basePort)))
 						}
 					}
 				}
 
-				appendLog(logContent, fmt.Sprintf("[SYSTEM] Парсинг завершен. Всего целей для сканирования: %d", len(finalTargets)))
+				appendLog(logContent, fmt.Sprintf("[SYSTEM] Анализ завершен. Найдено валидных целей: %d", len(finalTargets)))
 
 				if len(finalTargets) == 0 {
 					statusLabel.SetText("Валидные IP не найдены")
-					appendLog(logContent, "[ERROR] Список целей пуст. Проверьте формат файла.")
+					appendLog(logContent, "[ERROR] Сканирование невозможно: список целей пуст. Проверьте содержимое .txt файла.")
 					return
 				}
 
-				// Возвращаемся в UI поток ТОЛЬКО ради открытия окна сохранения файла
-				myApp.Driver().RunOnMain(func() {
-					timestamp := time.Now().Format("20060102_150405")
-					defaultFileName := fmt.Sprintf("%s_%s.txt", outNameBase, timestamp)
+				// В Fyne методы виджетов (SetText/Show) потокобезопасны.
+				// Вызываем создание окна сохранения напрямую.
+				timestamp := time.Now().Format("20060102_150405")
+				defaultFileName := fmt.Sprintf("%s_%s.txt", outNameBase, timestamp)
 
-					saveDialog := dialog.NewFileSave(func(outFile fyne.URIWriteCloser, err error) {
-						if err != nil {
-							statusLabel.SetText("Ошибка создания файла: " + err.Error())
-							return
+				saveDialog := dialog.NewFileSave(func(outFile fyne.URIWriteCloser, err error) {
+					if err != nil {
+						statusLabel.SetText("Ошибка создания файла: " + err.Error())
+						return
+					}
+					if outFile == nil {
+						statusLabel.SetText("Сохранение отменено пользователем")
+						return
+					}
+
+					appendLog(logContent, "[SYSTEM] Выходной файл подтвержден. Запуск сетевых воркеров...")
+					statusLabel.SetText(fmt.Sprintf("Сканирование %d целей...", len(finalTargets)))
+
+					// Запуск цикла сканирования в фоне
+					go func(out fyne.URIWriteCloser) {
+						defer out.Close()
+
+						opts := ironscan.Options{
+							Targets:     finalTargets,
+							Port:        basePort, // Передаем очищенный порт напрямую во избежание дефолтов
+							Timeout:     2 * time.Second,
+							Concurrency: concurrency,
+							Retries:     1,
 						}
-						if outFile == nil {
-							statusLabel.SetText("Сохранение результатов отменено")
-							return
+
+						// Перехват внутренних логов генератора Фейстеля
+						ironscan.LogHook = func(format string, args ...any) {
+							msg := fmt.Sprintf(format, args...)
+							appendLog(logContent, "[CORE] "+msg)
 						}
 
-						appendLog(logContent, "[SYSTEM] Файл результатов создан. Запуск сканирования сети...")
-						statusLabel.SetText(fmt.Sprintf("Сканирование %d целей в %d потоков...", len(finalTargets), concurrency))
+						ctx := context.Background()
+						successCount := 0
 
-						// Запуск самого сканера в фоне
-						go func(out fyne.URIWriteCloser) {
-							defer out.Close()
-
-							opts := ironscan.Options{
-								Targets:     finalTargets,
-								Timeout:     2 * time.Second,
-								Concurrency: concurrency,
-								Retries:     1,
-							}
-
-							ironscan.LogHook = func(format string, args ...any) {
-								msg := fmt.Sprintf(format, args...)
-								appendLog(logContent, "[SCANNER] "+msg)
-							}
-
-							ctx := context.Background()
-							successCount := 0
-
-							scanErr := ironscan.Run(ctx, opts, func(res ironscan.Result) {
-								if res.Ok() {
-									successCount++
-									lineData := fmt.Sprintf("%s;%s;%s;%s\n", res.Target, res.Serial, res.Model, res.Firmware)
-									if _, writeErr := out.Write([]byte(lineData)); writeErr != nil {
-										appendLog(logContent, "[ERROR] Ошибка записи: "+writeErr.Error())
-									}
-									foundMsg := fmt.Sprintf("[FOUND] %s -> %s (%s)", res.Target, res.Serial, res.Model)
-									appendLog(logContent, foundMsg)
+						scanErr := ironscan.Run(ctx, opts, func(res ironscan.Result) {
+							if res.Ok() {
+								successCount++
+								lineData := fmt.Sprintf("%s;%s;%s;%s\n", res.Target, res.Serial, res.Model, res.Firmware)
+								if _, writeErr := out.Write([]byte(lineData)); writeErr != nil {
+									appendLog(logContent, "[ERROR] Ошибка записи на диск: "+writeErr.Error())
 								}
-							})
-
-							if scanErr != nil {
-								statusLabel.SetText("Ошибка сканера: " + scanErr.Error())
-								appendLog(logContent, "[ERROR] Критическая ошибка сканера: "+scanErr.Error())
-							} else {
-								statusLabel.SetText(fmt.Sprintf("Готово! Найдено устройств: %d", successCount))
-								appendLog(logContent, fmt.Sprintf("[SYSTEM] Сканирование успешно завершено. Найдено: %d", successCount))
+								foundMsg := fmt.Sprintf("[FOUND] %s -> %s (%s)", res.Target, res.Serial, res.Model)
+								appendLog(logContent, foundMsg)
 							}
-						}(outFile)
+						})
 
-					}, myWindow)
+						if scanErr != nil {
+							statusLabel.SetText("Ошибка работы: " + scanErr.Error())
+							appendLog(logContent, "[ERROR] Сканер аварийно завершился: "+scanErr.Error())
+						} else {
+							statusLabel.SetText(fmt.Sprintf("Успешно! Найдено устройств: %d", successCount))
+							appendLog(logContent, fmt.Sprintf("[SYSTEM] Сканирование полностью завершено. Успешных находок: %d", successCount))
+						}
+					}(outFile)
 
-					saveDialog.SetFileName(defaultFileName)
-					saveDialog.Show()
-				})
+				}, myWindow)
+
+				saveDialog.SetFileName(defaultFileName)
+				saveDialog.Show()
 
 			}(reader)
 
@@ -212,14 +207,14 @@ func main() {
 		fileDialog.Show()
 	})
 
-	// СТРУКТУРИРОВАННАЯ ФОРМА НАСТРОЕК С ПОДПИСЯМИ
+	// СТРУКТУРИРОВАННАЯ ФОРМА НАСТРОЕК
 	settingsForm := widget.NewForm(
 		widget.NewFormItem("Потоки (Threads):", threadsEntry),
-		widget.NewFormItem("Порты (Ports):", portEntry),
-		widget.NewFormItem("Имя файла (Output):", outputEntry),
+		widget.NewFormItem("Порт по умолчанию:", portEntry),
+		widget.NewFormItem("Имя файла результатов:", outputEntry),
 	)
 
-	// Собираем элементы интерфейса в единый контейнер
+	// Вертикальная компоновка элементов интерфейса
 	content := container.NewVBox(
 		titleLabel,
 		settingsForm,
