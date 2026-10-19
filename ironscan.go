@@ -485,7 +485,7 @@ func appendTarget(items []string, line string) []string {
 }
 
 func ParseTarget(line string) []string {
-	return appendTarget(nil, line)
+	return appendTarget(make([]string, 0), line)
 }
 
 func LoadTargets(filepath string) ([]string, error) {
