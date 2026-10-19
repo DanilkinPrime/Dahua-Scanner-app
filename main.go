@@ -139,23 +139,22 @@ func main() {
 				statusLabel.SetText("Валидные IP не найдены")
 				return
 			}
-
-			// [ИСПРАВЛЕНО]: Надежный кроссплатформенный сбор путей сохранения
-			var downloadsPath string
-			downloadsURI, err := storage.Repository().Downloads()
 			
-			if err == nil && downloadsURI != nil && downloadsURI.Path() != "" {
-				downloadsPath = downloadsURI.Path() 
+			var downloadsPath string
+			
+			// Запрашиваем системный URI папки загрузок через list://downloads
+			downloadsURI := storage.NewFileURI("list://downloads")
+			downloadsList, err := storage.ListerForURI(downloadsURI)
+			
+			if err == nil && downloadsList != nil {
+				downloadsPath = downloadsList.URI().Path()
 			} else {
-				// Механизм защиты: если ОС заблокировала путь, определяем папку стандартными методами среды
 				homeDir, _ := os.UserHomeDir()
 				if homeDir != "" {
 					downloadsPath = filepath.Join(homeDir, "Downloads")
-				} else {
-					// Абсолютный защитный сценарий для изолированных Android сред
-					downloadsPath = myApp.Storage().RootURI().Path()
-				}
+				} 
 			}
+
 
 			// Создание папки Results в Загрузках
 			resultsDirPath := filepath.Join(downloadsPath, "Results")
