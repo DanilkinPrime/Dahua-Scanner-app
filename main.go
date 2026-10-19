@@ -132,7 +132,6 @@ func main() {
 					return
 				}
 
-				// Инициализация окна сохранения результатов
 				timestamp := time.Now().Format("20060102_150405")
 				defaultFileName := fmt.Sprintf("%s_%s.txt", outNameBase, timestamp)
 
