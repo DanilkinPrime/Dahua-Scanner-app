@@ -49,7 +49,7 @@ func main() {
 
 	// Кнопка выбора файла и запуска процесса
 	filePickerButton := widget.NewButton("Запуск", func() {
-		// [ДОБАВЛЕНО] Запрос системного разрешения на запись файлов для Android
+		// Запрос системного разрешения на запись файлов для Android
 		if androidDevice, ok := myApp.Driver().Device().(interface {
 			RequestPermission(string, func(bool))
 		}); ok {
@@ -140,22 +140,28 @@ func main() {
 				return
 			}
 
-			// ПОЛУЧЕНИЕ ПУТИ К СИСТЕМНОЙ ПАПКЕ DOWNLOADS
-			downloadsList, err := storage.ListerForURI(storage.NewWritableCloneableHint(storage.URI("list://downloads")))
+			// [ИСПРАВЛЕНО]: Надежный кроссплатформенный сбор путей сохранения
 			var downloadsPath string
+			downloadsURI, err := storage.Repository().Downloads()
 			
-			if err == nil && downloadsList != nil {
-				downloadsPath = downloadsList.URI().Path()
+			if err == nil && downloadsURI != nil && downloadsURI.Path() != "" {
+				downloadsPath = downloadsURI.Path() 
 			} else {
+				// Механизм защиты: если ОС заблокировала путь, определяем папку стандартными методами среды
 				homeDir, _ := os.UserHomeDir()
-				downloadsPath = filepath.Join(homeDir, "Downloads")
+				if homeDir != "" {
+					downloadsPath = filepath.Join(homeDir, "Downloads")
+				} else {
+					// Абсолютный защитный сценарий для изолированных Android сред
+					downloadsPath = myApp.Storage().RootURI().Path()
+				}
 			}
 
 			// Создание папки Results в Загрузках
 			resultsDirPath := filepath.Join(downloadsPath, "Results")
 			err = os.MkdirAll(resultsDirPath, 0755)
 			if err != nil {
-				statusLabel.SetText("Ошибка создания папки в Downloads: " + err.Error())
+				statusLabel.SetText("Ошибка создания папки: " + err.Error())
 				return
 			}
 
@@ -171,7 +177,7 @@ func main() {
 				return
 			}
 
-			appendLog(logContent, fmt.Sprintf("[SYSTEM] Файл будет сохранен в: Загрузки/Results/%s", fileName))
+			appendLog(logContent, fmt.Sprintf("[SYSTEM] Файл будет сохранен в: %s", finalFilePath))
 			statusLabel.SetText(fmt.Sprintf("Сканирование %d целей в %d потоков...", len(finalTargets), concurrency))
 
 			// Фоновое сканирование сети
@@ -212,7 +218,7 @@ func main() {
 				if err != nil {
 					statusLabel.SetText("Ошибка сканера: " + err.Error())
 				} else {
-					statusLabel.SetText(fmt.Sprintf("Готово! Файл: %s (Найдено: %d)", fileName, successCount))
+					statusLabel.SetText(fmt.Sprintf("Готово! Найдено устройств: %d", successCount))
 				}
 			}()
 
