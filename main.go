@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +29,7 @@ func main() {
 
 	// Поля текстового ввода для НАСТРОЕК
 	threadsEntry := widget.NewEntry()
-	threadsEntry.SetText("500") 
+	threadsEntry.SetText("50") // Для Android лучше снизить дефолт до 50-100 для стабильности сети
 	threadsEntry.SetPlaceHolder("Максимум 1000")
 
 	portEntry := widget.NewEntry()
@@ -49,17 +47,6 @@ func main() {
 
 	// Кнопка выбора файла и запуска процесса
 	filePickerButton := widget.NewButton("Запуск", func() {
-		// Запрос системного разрешения на запись файлов для Android
-		if androidDevice, ok := myApp.Driver().Device().(interface {
-			RequestPermission(string, func(bool))
-		}); ok {
-			androidDevice.RequestPermission("android.permission.WRITE_EXTERNAL_STORAGE", func(granted bool) {
-				if !granted {
-					log.Println("Внимание нет разрешения для создания файла")
-				}
-			})
-		}
-
 		fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 			if err != nil {
 				statusLabel.SetText("Ошибка: " + err.Error())
@@ -140,43 +127,35 @@ func main() {
 				return
 			}
 			
-			var downloadsPath string
+			// === ИСПРАВЛЕННЫЙ БЛОК: СОЗДАНИЕ ПАПКИ И ФАЙЛА ЧЕРЕЗ STORAGE API ===
+			appStorage := myApp.Storage()
 			
-			// Запрашиваем системный URI папки загрузок через list://downloads
-			downloadsURI := storage.NewFileURI("list://downloads")
-			downloadsList, err := storage.ListerForURI(downloadsURI)
-			
-			if err == nil && downloadsList != nil {
-				downloadsPath = downloadsList.Path()
-			} else {
-				homeDir, _ := os.UserHomeDir()
-				if homeDir != "" {
-					downloadsPath = filepath.Join(homeDir, "Downloads")
-				} 
-			}
-
-
-			// Создание папки Results в Загрузках
-			resultsDirPath := filepath.Join(downloadsPath, "Results")
-			err = os.MkdirAll(resultsDirPath, 0755)
+			// Легально создаем виртуальный путь к папке Results в песочнице Android
+			resultsDirURI, err := storage.ChildURI(appStorage.RootURI(), "Results")
 			if err != nil {
-				statusLabel.SetText("Ошибка создания папки: " + err.Error())
+				statusLabel.SetText("Ошибка создания пути папки: " + err.Error())
 				return
 			}
 
-			// Формируем имя файла по шаблону из настроек
+			// Формируем уникальное имя файла по шаблону
 			timestamp := time.Now().Format("20060102_150405")
 			fileName := fmt.Sprintf("%s_%s.txt", outNameBase, timestamp)
-			finalFilePath := filepath.Join(resultsDirPath, fileName)
 
-			// Открытие файла результатов на запись
-			outFile, err := os.OpenFile(finalFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			// Создаем полный URI для будущего файла результатов
+			fileURI, err := storage.ChildURI(resultsDirURI, fileName)
+			if err != nil {
+				statusLabel.SetText("Ошибка создания пути файла: " + err.Error())
+				return
+			}
+
+			// Открываем поток записи с помощью Fyne Storage API (заменяет os.OpenFile)
+			outFile, err := storage.Writer(fileURI)
 			if err != nil {
 				statusLabel.SetText("Ошибка создания файла результатов: " + err.Error())
 				return
 			}
 
-			appendLog(logContent, fmt.Sprintf("[SYSTEM] Файл будет сохранен в: %s", finalFilePath))
+			appendLog(logContent, fmt.Sprintf("[SYSTEM] Файл успешно создан в приватном хранилище приложения."))
 			statusLabel.SetText(fmt.Sprintf("Сканирование %d целей в %d потоков...", len(finalTargets), concurrency))
 
 			// Фоновое сканирование сети
@@ -204,7 +183,7 @@ func main() {
 						
 						// Строка для записи в .txt файл
 						lineData := fmt.Sprintf("%s;%s;%s;%s\n", res.Target, res.Serial, res.Model, res.Firmware)
-						if _, err := outFile.WriteString(lineData); err != nil {
+						if _, err := outFile.Write([]byte(lineData)); err != nil {
 							log.Printf("Ошибка записи: %v", err)
 						}
 
