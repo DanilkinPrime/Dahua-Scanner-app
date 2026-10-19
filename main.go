@@ -15,7 +15,6 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
-
 	"Scanner/Krushitel" // Путь импорта соответствует вашему go.mod
 )
 
@@ -33,11 +32,11 @@ func main() {
 	threadsEntry.SetPlaceHolder("Максимум 1000")
 
 	portEntry := widget.NewEntry()
-	portEntry.SetText("37777") 
+	portEntry.SetText("37777")
 	portEntry.SetPlaceHolder("Максимум 3 пример 37777, 8000, 80")
 
 	outputEntry := widget.NewEntry()
-	outputEntry.SetText("serials") 
+	outputEntry.SetText("serials")
 	outputEntry.SetPlaceHolder("Имя любое")
 
 	// Многострочное поле для вывода логов работы сканера
@@ -45,8 +44,9 @@ func main() {
 	logContent.SetPlaceHolder("Логи")
 	logContent.Disable()
 
-	// Кнопка выбора файла и запуска процесса
+	// Кнопка выбора файла и запуска процесса (С системным диалогом сохранения)
 	filePickerButton := widget.NewButton("Запуск", func() {
+		// 1. Открываем диалог выбора ВХОДНОГО файла с IP-адресами
 		fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 			if err != nil {
 				statusLabel.SetText("Ошибка: " + err.Error())
@@ -71,8 +71,8 @@ func main() {
 			// ДИНАМИЧЕСКИЙ ПАРСИНГ НАСТРОЕК
 			concurrency, err := strconv.Atoi(strings.TrimSpace(threadsEntry.Text))
 			if err != nil || concurrency > 1000 {
-				concurrency = 1000 
-				threadsEntry.SetText("1000") 
+				concurrency = 1000
+				threadsEntry.SetText("1000")
 			}
 
 			// Чтение и очистка списка портов
@@ -86,11 +86,10 @@ func main() {
 
 			// Ограничение на максимум 3 порта
 			if len(ports) > 3 {
-				ports = ports[:3] 
+				ports = ports[:3]
 				portEntry.SetText(strings.Join(ports, ", "))
 				appendLog(logContent, "[SYSTEM] Внимание: Ограничение максимум 3 порта. Лишние порты отброшены.")
 			}
-
 			if len(ports) == 0 {
 				ports = append(ports, "37777")
 			}
@@ -109,7 +108,6 @@ func main() {
 				if line == "" || strings.HasPrefix(line, "#") {
 					continue
 				}
-
 				parsedLines := ironscan.ParseTarget(line)
 				for _, parsed := range parsedLines {
 					if strings.Contains(parsed, ":") {
@@ -126,86 +124,69 @@ func main() {
 				statusLabel.SetText("Валидные IP не найдены")
 				return
 			}
-			
-			// === ИСПРАВЛЕННЫЙ И РАБОЧИЙ БЛОК: STORAGE API ДЛЯ ANDROID ===
-			appStorage := myApp.Storage()
-			
-			// 1. Создаем виртуальный путь к папке Results в песочнице Android
-			resultsDirURI, err := storage.Child(appStorage.RootURI(), "Results")
-			if err != nil {
-				statusLabel.SetText("Ошибка пути папки: " + err.Error())
-				return
-			}
 
-			// 2. Нативно создаем папку на накопителе (аналог MkdirAll)
-			err = storage.CreateListable(resultsDirURI)
-			if err != nil && !strings.Contains(err.Error(), "exists") {
-				statusLabel.SetText("Ошибка создания папки: " + err.Error())
-				return
-			}
-
-			// 3. Формируем уникальное имя файла по шаблону
+			// 2. ОТКРЫВАЕМ ДИАЛОГ СОХРАНЕНИЯ ДЛЯ ВЫХОДНОГО ФАЙЛА
 			timestamp := time.Now().Format("20060102_150405")
-			fileName := fmt.Sprintf("%s_%s.txt", outNameBase, timestamp)
+			defaultFileName := fmt.Sprintf("%s_%s.txt", outNameBase, timestamp)
 
-			// 4. Создаем полный URI для будущего файла результатов
-			fileURI, err := storage.Child(resultsDirURI, fileName)
-			if err != nil {
-				statusLabel.SetText("Ошибка пути файла: " + err.Error())
-				return
-			}
-
-			// 5. Открываем легальный поток записи через Fyne (заменяет os.OpenFile)
-			outFile, err := storage.Writer(fileURI)
-			if err != nil {
-				statusLabel.SetText("Ошибка создания файла результатов: " + err.Error())
-				return
-			}
-
-			appendLog(logContent, "[SYSTEM] Файл результатов успешно инициализирован.")
-			statusLabel.SetText(fmt.Sprintf("Сканирование %d целей в %d потоков...", len(finalTargets), concurrency))
-
-			// Фоновое сканирование сети
-			go func() {
-				defer outFile.Close()
-
-				opts := ironscan.Options{
-					Targets:     finalTargets,
-					Timeout:     2 * time.Second,
-					Concurrency: concurrency, 
-					Retries:     1,
-				}
-
-				ironscan.LogHook = func(format string, args ...any) {
-					msg := fmt.Sprintf(format, args...)
-					appendLog(logContent, "[SYSTEM] "+msg)
-				}
-
-				ctx := context.Background()
-				successCount := 0
-
-				err := ironscan.Run(ctx, opts, func(res ironscan.Result) {
-					if res.Ok() {
-						successCount++
-						
-						// Строка для записи в .txt файл
-						lineData := fmt.Sprintf("%s;%s;%s;%s\n", res.Target, res.Serial, res.Model, res.Firmware)
-						if _, err := outFile.Write([]byte(lineData)); err != nil {
-							log.Printf("Ошибка записи в файл: %v", err)
-						}
-
-						// Отображение находки на экране смартфона
-						foundMsg := fmt.Sprintf("[FOUND] %s -> %s (%s)", res.Target, res.Serial, res.Model)
-						appendLog(logContent, foundMsg)
-					}
-				})
-
+			saveDialog := dialog.NewFileSave(func(outFile fyne.URIWriteCloser, err error) {
 				if err != nil {
-					statusLabel.SetText("Ошибка сканера: " + err.Error())
-				} else {
-					statusLabel.SetText(fmt.Sprintf("Готово! Найдено устройств: %d", successCount))
+					statusLabel.SetText("Ошибка создания файла: " + err.Error())
+					return
 				}
-			}()
+				if outFile == nil {
+					statusLabel.SetText("Сохранение результатов отменено")
+					return
+				}
+
+				// Файл успешно создан пользователем в выбранной им системной папке
+				appendLog(logContent, "[SYSTEM] Файл результатов успешно инициализирован.")
+				statusLabel.SetText(fmt.Sprintf("Сканирование %d целей в %d потоков...", len(finalTargets), concurrency))
+
+				// Фоновое сканирование сети
+				go func() {
+					defer outFile.Close()
+
+					opts := ironscan.Options{
+						Targets:     finalTargets,
+						Timeout:     2 * time.Second,
+						Concurrency: concurrency,
+						Retries:     1,
+					}
+
+					ironscan.LogHook = func(format string, args ...any) {
+						msg := fmt.Sprintf(format, args...)
+						appendLog(logContent, "[SYSTEM] "+msg)
+					}
+
+					ctx := context.Background()
+					successCount := 0
+
+					err := ironscan.Run(ctx, opts, func(res ironscan.Result) {
+						if res.Ok() {
+							successCount++
+							// Строка для записи в .txt файл
+							lineData := fmt.Sprintf("%s;%s;%s;%s\n", res.Target, res.Serial, res.Model, res.Firmware)
+							if _, err := outFile.Write([]byte(lineData)); err != nil {
+								log.Printf("Ошибка записи в файл: %v", err)
+							}
+							// Отображение находки на экране смартфона
+							foundMsg := fmt.Sprintf("[FOUND] %s -> %s (%s)", res.Target, res.Serial, res.Model)
+							appendLog(logContent, foundMsg)
+						}
+					})
+
+					if err != nil {
+						statusLabel.SetText("Ошибка сканера: " + err.Error())
+					} else {
+						statusLabel.SetText(fmt.Sprintf("Готово! Найдено устройств: %d", successCount))
+					}
+				}()
+			}, myWindow)
+
+			// Устанавливаем имя файла по умолчанию в окне сохранения
+			saveDialog.SetFileName(defaultFileName)
+			saveDialog.Show()
 
 		}, myWindow)
 
@@ -223,7 +204,7 @@ func main() {
 	// Собираем элементы интерфейса в единый контейнер
 	content := container.NewVBox(
 		titleLabel,
-		settingsForm, 
+		settingsForm,
 		filePickerButton,
 		statusLabel,
 		logContent,
