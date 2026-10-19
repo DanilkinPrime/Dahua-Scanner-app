@@ -18,7 +18,7 @@ import (
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 
-	"Scanner/ironscan" // Путь импорта из вашего go.mod
+	"Scanner/Krushitel" // Путь импорта соответствует вашему go.mod
 )
 
 func main() {
@@ -29,17 +29,17 @@ func main() {
 	titleLabel := widget.NewLabelWithStyle("Железный Сканер Dahua", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	statusLabel := widget.NewLabel("Настройки сканера")
 
-	// 1. Поля текстового ввода для НАСТРОЕК
+	// Поля текстового ввода для НАСТРОЕК
 	threadsEntry := widget.NewEntry()
-	threadsEntry.SetText("500") // По умолчанию 500 потоков
+	threadsEntry.SetText("500") 
 	threadsEntry.SetPlaceHolder("Максимум 1000")
 
 	portEntry := widget.NewEntry()
-	portEntry.SetText("37777") // По умолчанию порт 37777
+	portEntry.SetText("37777") 
 	portEntry.SetPlaceHolder("Максимум 3 пример 37777, 8000, 80")
 
 	outputEntry := widget.NewEntry()
-	outputEntry.SetText("serials") // По умолчанию префикс имени serials
+	outputEntry.SetText("serials") 
 	outputEntry.SetPlaceHolder("Имя любое")
 
 	// Многострочное поле для вывода логов работы сканера
@@ -49,6 +49,17 @@ func main() {
 
 	// Кнопка выбора файла и запуска процесса
 	filePickerButton := widget.NewButton("Запуск", func() {
+		// [ДОБАВЛЕНО] Запрос системного разрешения на запись файлов для Android
+		if androidDevice, ok := myApp.Driver().Device().(interface {
+			RequestPermission(string, func(bool))
+		}); ok {
+			androidDevice.RequestPermission("android.permission.WRITE_EXTERNAL_STORAGE", func(granted bool) {
+				if !granted {
+					log.Println("Внимание нет разрешения для создания файла")
+				}
+			})
+		}
+
 		fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 			if err != nil {
 				statusLabel.SetText("Ошибка: " + err.Error())
@@ -70,12 +81,11 @@ func main() {
 				return
 			}
 
-			// ДИНАМИЧЕСКИЙ ПАРСИНГ НАСТРОЕК ИЗ ИНТЕРФЕЙСА
-			// Чтение количества потоков (Concurrency)
+			// ДИНАМИЧЕСКИЙ ПАРСИНГ НАСТРОЕК
 			concurrency, err := strconv.Atoi(strings.TrimSpace(threadsEntry.Text))
 			if err != nil || concurrency > 1000 {
-				concurrency = 1000 // Исправлена опечатка в имени переменной
-				threadsEntry.SetText("1000") // Сбрасываем визуально в GUI на лимит
+				concurrency = 1000 
+				threadsEntry.SetText("1000") 
 			}
 
 			// Чтение и очистка списка портов
@@ -87,10 +97,9 @@ func main() {
 				}
 			}
 
-			// ДОБАВЛЕНО ОГРАНИЧЕНИЕ НА МАКСИМУМ 3 ПОРТА
+			// Ограничение на максимум 3 порта
 			if len(ports) > 3 {
-				ports = ports[:3] // Отрезаем всё что дальше третьего порта
-				// Обновляем строку в интерфейсе, чтобы пользователь видел изменения
+				ports = ports[:3] 
 				portEntry.SetText(strings.Join(ports, ", "))
 				appendLog(logContent, "[SYSTEM] Внимание: Ограничение максимум 3 порта. Лишние порты отброшены.")
 			}
@@ -105,7 +114,7 @@ func main() {
 				outNameBase = "serials"
 			}
 
-			// Парсинг целей (IP/Диапазоны)
+			// Парсинг целей (IP/Диапазоны) через ваш пакет Krushitel
 			var finalTargets []string
 			lines := strings.Split(string(data), "\n")
 			for _, line := range lines {
@@ -172,7 +181,7 @@ func main() {
 				opts := ironscan.Options{
 					Targets:     finalTargets,
 					Timeout:     2 * time.Second,
-					Concurrency: concurrency, // Передаем значение из GUI
+					Concurrency: concurrency, 
 					Retries:     1,
 				}
 
@@ -213,7 +222,7 @@ func main() {
 		fileDialog.Show()
 	})
 
-	// СТРУКТУРИРОВАННАЯ ФОРМА НАСТРОЕК С ПОДПИСЯМИ (TextBoxes)
+	// СТРУКТУРИРОВАННАЯ ФОРМА НАСТРОЕК С ПОДПИСЯМИ
 	settingsForm := widget.NewForm(
 		widget.NewFormItem("Потоки (Threads):", threadsEntry),
 		widget.NewFormItem("Порты (Ports):", portEntry),
@@ -223,7 +232,7 @@ func main() {
 	// Собираем элементы интерфейса в единый контейнер
 	content := container.NewVBox(
 		titleLabel,
-		settingsForm, // Блок настроек встроен перед кнопкой запуска
+		settingsForm, 
 		filePickerButton,
 		statusLabel,
 		logContent,
