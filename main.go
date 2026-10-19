@@ -29,7 +29,7 @@ func main() {
 
 	// Поля текстового ввода для НАСТРОЕК
 	threadsEntry := widget.NewEntry()
-	threadsEntry.SetText("50") // Для Android лучше снизить дефолт до 50-100 для стабильности сети
+	threadsEntry.SetText("50") // 50-100 потоков — оптимально для мобильного Wi-Fi
 	threadsEntry.SetPlaceHolder("Максимум 1000")
 
 	portEntry := widget.NewEntry()
@@ -127,35 +127,42 @@ func main() {
 				return
 			}
 			
-			// === ИСПРАВЛЕННЫЙ БЛОК: СОЗДАНИЕ ПАПКИ И ФАЙЛА ЧЕРЕЗ STORAGE API ===
+			// === ИСПРАВЛЕННЫЙ И РАБОЧИЙ БЛОК: STORAGE API ДЛЯ ANDROID ===
 			appStorage := myApp.Storage()
 			
-			// Легально создаем виртуальный путь к папке Results в песочнице Android
-			resultsDirURI, err := storage.ChildURI(appStorage.RootURI(), "Results")
+			// 1. Создаем виртуальный путь к папке Results в песочнице Android
+			resultsDirURI, err := storage.Child(appStorage.RootURI(), "Results")
 			if err != nil {
-				statusLabel.SetText("Ошибка создания пути папки: " + err.Error())
+				statusLabel.SetText("Ошибка пути папки: " + err.Error())
 				return
 			}
 
-			// Формируем уникальное имя файла по шаблону
+			// 2. Нативно создаем папку на накопителе (аналог MkdirAll)
+			err = storage.CreateListable(resultsDirURI)
+			if err != nil && !strings.Contains(err.Error(), "exists") {
+				statusLabel.SetText("Ошибка создания папки: " + err.Error())
+				return
+			}
+
+			// 3. Формируем уникальное имя файла по шаблону
 			timestamp := time.Now().Format("20060102_150405")
 			fileName := fmt.Sprintf("%s_%s.txt", outNameBase, timestamp)
 
-			// Создаем полный URI для будущего файла результатов
-			fileURI, err := storage.ChildURI(resultsDirURI, fileName)
+			// 4. Создаем полный URI для будущего файла результатов
+			fileURI, err := storage.Child(resultsDirURI, fileName)
 			if err != nil {
-				statusLabel.SetText("Ошибка создания пути файла: " + err.Error())
+				statusLabel.SetText("Ошибка пути файла: " + err.Error())
 				return
 			}
 
-			// Открываем поток записи с помощью Fyne Storage API (заменяет os.OpenFile)
+			// 5. Открываем легальный поток записи через Fyne (заменяет os.OpenFile)
 			outFile, err := storage.Writer(fileURI)
 			if err != nil {
 				statusLabel.SetText("Ошибка создания файла результатов: " + err.Error())
 				return
 			}
 
-			appendLog(logContent, fmt.Sprintf("[SYSTEM] Файл успешно создан в приватном хранилище приложения."))
+			appendLog(logContent, "[SYSTEM] Файл результатов успешно инициализирован.")
 			statusLabel.SetText(fmt.Sprintf("Сканирование %d целей в %d потоков...", len(finalTargets), concurrency))
 
 			// Фоновое сканирование сети
@@ -184,7 +191,7 @@ func main() {
 						// Строка для записи в .txt файл
 						lineData := fmt.Sprintf("%s;%s;%s;%s\n", res.Target, res.Serial, res.Model, res.Firmware)
 						if _, err := outFile.Write([]byte(lineData)); err != nil {
-							log.Printf("Ошибка записи: %v", err)
+							log.Printf("Ошибка записи в файл: %v", err)
 						}
 
 						// Отображение находки на экране смартфона
