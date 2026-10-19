@@ -15,7 +15,6 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
-	"Scanner/Krushitel" // Путь импорта соответствует вашему go.mod
 )
 
 func main() {
@@ -60,7 +59,7 @@ func main() {
 			statusLabel.SetText("Обработка файла...")
 			logContent.SetText("[SYSTEM] Файл успешно выбран. Инициализация...\n")
 
-			// Полностью изолируем чтение и парсинг в фоне, чтобы интерфейс не вис
+			// Полностью изолируем чтение и парсинг в фоне
 			go func(r fyne.URIReadCloser) {
 				defer r.Close()
 
@@ -84,7 +83,7 @@ func main() {
 					threadsEntry.SetText("1000")
 				}
 
-				// Парсинг базового端口 для структуры ironscan.Options
+				// Парсинг базового порта
 				basePort, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
 				if err != nil || basePort <= 0 || basePort > 65535 {
 					basePort = 37777
@@ -96,12 +95,12 @@ func main() {
 					outNameBase = "serials"
 				}
 
-				// Нормализуем текст (удаляем \r, превращая Windows-строки в Unix-строки)
+				// Нормализуем текст (удаляем \r)
 				cleanText := strings.ReplaceAll(string(data), "\r", "")
 				lines := strings.Split(cleanText, "\n")
 
 				var finalTargets []string
-				appendLog(logContent, "[SYSTEM] Запуск парсинга целей через подсистему Krushitel...")
+				appendLog(logContent, "[SYSTEM] Запуск парсинга целей...")
 
 				for i, line := range lines {
 					line = strings.TrimSpace(line)
@@ -109,15 +108,14 @@ func main() {
 						continue
 					}
 
-					// Вызов вашего парсера из ironscan
-					parsedLines := ironscan.ParseTarget(line)
+					// Вызов функции НАПРЯМУЮ (так как файлы теперь в одном пакете main)
+					parsedLines := ParseTarget(line)
 					if len(parsedLines) == 0 {
 						appendLog(logContent, fmt.Sprintf("[WARN] Строка %d пропущена парсером: %s", i+1, line))
 						continue
 					}
 
 					for _, parsed := range parsedLines {
-						// Если порт уже указан в строке, берем как есть, иначе приклеиваем выбранный
 						if _, _, err := net.SplitHostPort(parsed); err == nil {
 							finalTargets = append(finalTargets, parsed)
 						} else {
@@ -130,12 +128,11 @@ func main() {
 
 				if len(finalTargets) == 0 {
 					statusLabel.SetText("Валидные IP не найдены")
-					appendLog(logContent, "[ERROR] Сканирование невозможно: список целей пуст. Проверьте содержимое .txt файла.")
+					appendLog(logContent, "[ERROR] Сканирование невозможно: список целей пуст.")
 					return
 				}
 
-				// В Fyne методы виджетов (SetText/Show) потокобезопасны.
-				// Вызываем создание окна сохранения напрямую.
+				// Инициализация окна сохранения результатов
 				timestamp := time.Now().Format("20060102_150405")
 				defaultFileName := fmt.Sprintf("%s_%s.txt", outNameBase, timestamp)
 
@@ -145,7 +142,7 @@ func main() {
 						return
 					}
 					if outFile == nil {
-						statusLabel.SetText("Сохранение отменено пользователем")
+						statusLabel.SetText("Сохранение результатов отменено")
 						return
 					}
 
@@ -156,16 +153,17 @@ func main() {
 					go func(out fyne.URIWriteCloser) {
 						defer out.Close()
 
-						opts := ironscan.Options{
+						// Обращение к структуре Options напрямую
+						opts := Options{
 							Targets:     finalTargets,
-							Port:        basePort, // Передаем очищенный порт напрямую во избежание дефолтов
+							Port:        basePort,
 							Timeout:     2 * time.Second,
 							Concurrency: concurrency,
 							Retries:     1,
 						}
 
-						// Перехват внутренних логов генератора Фейстеля
-						ironscan.LogHook = func(format string, args ...any) {
+						// Перехват внутренних логов генератора
+						LogHook = func(format string, args ...any) {
 							msg := fmt.Sprintf(format, args...)
 							appendLog(logContent, "[CORE] "+msg)
 						}
@@ -173,7 +171,8 @@ func main() {
 						ctx := context.Background()
 						successCount := 0
 
-						scanErr := ironscan.Run(ctx, opts, func(res ironscan.Result) {
+						// Вызов функции Run напрямую
+						scanErr := Run(ctx, opts, func(res Result) {
 							if res.Ok() {
 								successCount++
 								lineData := fmt.Sprintf("%s;%s;%s;%s\n", res.Target, res.Serial, res.Model, res.Firmware)
@@ -214,7 +213,6 @@ func main() {
 		widget.NewFormItem("Имя файла результатов:", outputEntry),
 	)
 
-	// Вертикальная компоновка элементов интерфейса
 	content := container.NewVBox(
 		titleLabel,
 		settingsForm,
