@@ -116,6 +116,10 @@ func main() {
 					}
 
 					for _, parsed := range parsedLines {
+						 parsed = strings.TrimSpace(parsed)
+                        if parsed == "" {
+                            continue
+                        }
 						if _, _, err := net.SplitHostPort(parsed); err == nil {
 							finalTargets = append(finalTargets, parsed)
 						} else {
