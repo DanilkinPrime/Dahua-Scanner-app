@@ -382,27 +382,45 @@ func parseResponse(response []byte) Result {
 }
 
 func parseRangeIPs(rangeStr string) []string {
+	// === ВСТАВЬТЕ ЭТИ СТРОЧКИ СЮДА ===
+	rangeStr = strings.ReplaceAll(rangeStr, "\r", "")
+	rangeStr = strings.ReplaceAll(rangeStr, " ", "")
+	rangeStr = strings.TrimSpace(rangeStr)
+
+	// Дальше идет ваш стандартный код разделения диапазона
 	parts := strings.SplitN(rangeStr, "-", 2)
-	startIP := net.ParseIP(strings.TrimSpace(parts[0])).To4()
+	if len(parts) < 2 {
+		return nil
+	}
+	
+	// Очищаем обе части диапазона индивидуально
+	partStart := strings.TrimSpace(parts[0])
+	partEnd := strings.TrimSpace(parts[1])
+
+	startIP := net.ParseIP(partStart).To4()
 	if startIP == nil {
 		return nil
 	}
+
 	var endVal uint32
-	if endIP := net.ParseIP(strings.TrimSpace(parts[1])).To4(); endIP != nil {
+	if endIP := net.ParseIP(partEnd).To4(); endIP != nil {
 		endVal = binary.BigEndian.Uint32(endIP)
-	} else if octet, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && octet >= 0 && octet <= 255 {
+	} else if octet, err := strconv.Atoi(partEnd); err == nil && octet >= 0 && octet <= 255 {
 		endVal = binary.BigEndian.Uint32(startIP)&0xffffff00 | uint32(octet)
 	} else {
 		return nil
 	}
+
 	startVal := binary.BigEndian.Uint32(startIP)
 	if startVal > endVal {
 		startVal, endVal = endVal, startVal
 	}
+
 	count := int64(endVal - startVal + 1)
 	if count > maxRangeIPs {
 		count = maxRangeIPs
 	}
+
 	res := make([]string, 0, count)
 	ip := make(net.IP, 4)
 	for v := startVal; v <= startVal+uint32(count)-1; v++ {
