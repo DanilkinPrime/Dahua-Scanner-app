@@ -31,7 +31,7 @@ jobs:
       # 4. Запускаем компиляцию с правильным флагом -app-id
       - name: Package APK for Android (ARM64)
         run: |
-          $(go env GOPATH)/bin/fyne-cross android -arch arm64 -app-id com.dahua.scanner -env GOTOOLCHAIN=auto
+          $(go env GOPATH)/bin/fyne-cross android -arch arm64 -app-id com.dahua.scanner -env GOTOOLCHAIN=auto --metadata "permissions=android.permission.READ_EXTERNAL_STORAGE,android.permission.WRITE_EXTERNAL_STORAGE"
 
       # 5. Выкладываем готовый APK в артефакты
       - name: Upload APK Artifact
