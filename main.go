@@ -147,7 +147,7 @@ func main() {
 			downloadsList, err := storage.ListerForURI(downloadsURI)
 			
 			if err == nil && downloadsList != nil {
-				downloadsPath = downloadsList.URI().Path()
+				downloadsPath = downloadsList.Path()
 			} else {
 				homeDir, _ := os.UserHomeDir()
 				if homeDir != "" {
