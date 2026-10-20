@@ -21,13 +21,13 @@ func main() {
 	myApp := app.New()
 	myWindow := myApp.NewWindow("Android IronScan GUI")
 
-	// Элементы интерфейса и заголовки
+	var showMenu func()
+
 	titleLabel := widget.NewLabelWithStyle("Железный Сканер Dahua", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	statusLabel := widget.NewLabel("Настройки сканера")
 
-	// Поля текстового ввода для НАСТРОЕК
 	threadsEntry := widget.NewEntry()
-	threadsEntry.SetText("50") // Оптимально для мобильного Wi-Fi
+	threadsEntry.SetText("50")
 	threadsEntry.SetPlaceHolder("Максимум 1000")
 
 	portEntry := widget.NewEntry()
@@ -38,14 +38,15 @@ func main() {
 	outputEntry.SetText("serials")
 	outputEntry.SetPlaceHolder("Имя любого файла")
 
-	// Многострочное поле для вывода логов работы сканера
 	logContent := widget.NewMultiLineEntry()
 	logContent.SetPlaceHolder("Здесь будут отображаться шаги работы...")
 	logContent.Disable()
 
-	// Кнопка выбора файла и запуска процесса
+	backToMenuBtn1 := widget.NewButton("Назад в меню", func() {
+		showMenu()
+	})
+
 	filePickerButton := widget.NewButton("Запуск", func() {
-		// 1. Открываем диалог выбора ВХОДНОГО файла с IP-адресами
 		fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 			if err != nil {
 				statusLabel.SetText("Ошибка: " + err.Error())
@@ -55,25 +56,20 @@ func main() {
 				statusLabel.SetText("Выбор файла отменен")
 				return
 			}
-			
 			statusLabel.SetText("Обработка файла...")
 			logContent.SetText("[SYSTEM] Файл успешно выбран. Инициализация...\n")
 
-			// Полностью изолируем чтение и парсинг в фоне
 			go func(r fyne.URIReadCloser) {
 				defer r.Close()
-
 				appendLog(logContent, "[SYSTEM] Чтение сырых данных из файла...")
 				data, err := io.ReadAll(r)
 				if err != nil {
 					statusLabel.SetText("Не удалось прочитать файл")
-					appendLog(logContent, "[ERROR] Ошибка io.ReadAll: "+err.Error())
+					appendLog(logContent, "[ERROR] Ошибка io.ReadAll: " + err.Error())
 					return
 				}
-
 				appendLog(logContent, fmt.Sprintf("[SYSTEM] Прочитано %d байт. Очистка строк от символов \\r...", len(data)))
 
-				// Парсинг потоков
 				concurrency, err := strconv.Atoi(strings.TrimSpace(threadsEntry.Text))
 				if err != nil || concurrency < 1 {
 					concurrency = 50
@@ -83,7 +79,6 @@ func main() {
 					threadsEntry.SetText("1000")
 				}
 
-				// Парсинг базового порта
 				basePort, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
 				if err != nil || basePort <= 0 || basePort > 65535 {
 					basePort = 37777
@@ -95,20 +90,17 @@ func main() {
 					outNameBase = "serials"
 				}
 
-				// Нормализуем текст (удаляем \r)
 				cleanText := strings.ReplaceAll(string(data), "\r", "")
 				lines := strings.Split(cleanText, "\n")
-
 				var finalTargets []string
-				appendLog(logContent, "[SYSTEM] Запуск парсинга целей...")
 
+				appendLog(logContent, "[SYSTEM] Запуск парсинга целей...")
 				for i, line := range lines {
 					line = strings.TrimSpace(line)
 					if line == "" || strings.HasPrefix(line, "#") {
 						continue
 					}
 
-					// Вызов функции НАПРЯМУЮ (так как файлы теперь в одном пакете main)
 					parsedLines := ParseTarget(line)
 					if len(parsedLines) == 0 {
 						appendLog(logContent, fmt.Sprintf("[WARN] Строка %d пропущена парсером: %s", i+1, line))
@@ -116,10 +108,10 @@ func main() {
 					}
 
 					for _, parsed := range parsedLines {
-						 parsed = strings.TrimSpace(parsed)
-                        if parsed == "" {
-                            continue
-                        }
+						parsed = strings.TrimSpace(parsed)
+						if parsed == "" {
+							continue
+						}
 						if _, _, err := net.SplitHostPort(parsed); err == nil {
 							finalTargets = append(finalTargets, parsed)
 						} else {
@@ -129,7 +121,6 @@ func main() {
 				}
 
 				appendLog(logContent, fmt.Sprintf("[SYSTEM] Анализ завершен. Найдено валидных целей: %d", len(finalTargets)))
-
 				if len(finalTargets) == 0 {
 					statusLabel.SetText("Валидные IP не найдены")
 					appendLog(logContent, "[ERROR] Сканирование невозможно: список целей пуст.")
@@ -152,11 +143,9 @@ func main() {
 					appendLog(logContent, "[SYSTEM] Выходной файл подтвержден. Запуск сетевых воркеров...")
 					statusLabel.SetText(fmt.Sprintf("Сканирование %d целей...", len(finalTargets)))
 
-					// Запуск цикла сканирования в фоне
 					go func(out fyne.URIWriteCloser) {
 						defer out.Close()
 
-						// Обращение к структуре Options напрямую
 						opts := Options{
 							Targets:     finalTargets,
 							Port:        basePort,
@@ -165,22 +154,20 @@ func main() {
 							Retries:     1,
 						}
 
-						// Перехват внутренних логов генератора
 						LogHook = func(format string, args ...any) {
 							msg := fmt.Sprintf(format, args...)
-							appendLog(logContent, "[CORE] "+msg)
+							appendLog(logContent, "[CORE] " + msg)
 						}
 
 						ctx := context.Background()
 						successCount := 0
 
-						// Вызов функции Run напрямую
 						scanErr := Run(ctx, opts, func(res Result) {
 							if res.Ok() {
 								successCount++
 								lineData := fmt.Sprintf("%s;%s;%s;%s\n", res.Target, res.Serial, res.Model, res.Firmware)
 								if _, writeErr := out.Write([]byte(lineData)); writeErr != nil {
-									appendLog(logContent, "[ERROR] Ошибка записи на диск: "+writeErr.Error())
+									appendLog(logContent, "[ERROR] Ошибка записи на диск: " + writeErr.Error())
 								}
 								foundMsg := fmt.Sprintf("[FOUND] %s -> %s (%s)", res.Target, res.Serial, res.Model)
 								appendLog(logContent, foundMsg)
@@ -189,42 +176,78 @@ func main() {
 
 						if scanErr != nil {
 							statusLabel.SetText("Ошибка работы: " + scanErr.Error())
-							appendLog(logContent, "[ERROR] Сканер аварийно завершился: "+scanErr.Error())
+							appendLog(logContent, "[ERROR] Сканер аварийно завершился: " + scanErr.Error())
 						} else {
 							statusLabel.SetText(fmt.Sprintf("Успешно! Найдено устройств: %d", successCount))
 							appendLog(logContent, fmt.Sprintf("[SYSTEM] Сканирование полностью завершено. Успешных находок: %d", successCount))
 						}
 					}(outFile)
-
 				}, myWindow)
 
 				saveDialog.SetFileName(defaultFileName)
 				saveDialog.Show()
-
 			}(reader)
-
 		}, myWindow)
 
 		fileDialog.SetFilter(storage.NewExtensionFileFilter([]string{".txt"}))
 		fileDialog.Show()
 	})
 
-	// СТРУКТУРИРОВАННАЯ ФОРМА НАСТРОЕК
 	settingsForm := widget.NewForm(
 		widget.NewFormItem("Потоки (Threads):", threadsEntry),
 		widget.NewFormItem("Порт по умолчанию:", portEntry),
 		widget.NewFormItem("Имя файла результатов:", outputEntry),
 	)
 
-	content := container.NewVBox(
+	scanContent := container.NewVBox(
 		titleLabel,
 		settingsForm,
 		filePickerButton,
 		statusLabel,
 		logContent,
+		backToMenuBtn1,
 	)
 
-	myWindow.SetContent(content)
+	crashTitle := widget.NewLabelWithStyle("Режим: Деструкция / Эксплуатация", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	crashStatus := widget.NewLabel("Ожидание выбора целей...")
+	crashLog := widget.NewMultiLineEntry()
+	crashLog.SetPlaceHolder("Логи деструктивных действий будут здесь...")
+	crashLog.Disable()
+
+	backToMenuBtn2 := widget.NewButton("Назад в меню", func() {
+		showMenu()
+	})
+
+	crashContent := container.NewVBox(
+		crashTitle,
+		widget.NewButton("Запустить Сплоит / Атаку", func() {
+			crashStatus.SetText("Атака запущена...")
+			crashLog.SetText("[CRITICAL] Посылаем payload...\n")
+		}),
+		crashStatus,
+		crashLog,
+		backToMenuBtn2,
+	)
+
+	showMenu = func() {
+		menuTitle := widget.NewLabelWithStyle("Выберите режим работы", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+		btnCrash := widget.NewButton("1. Крушим камери", func() {
+			myWindow.SetContent(crashContent)
+		})
+		btnScan := widget.NewButton("2. Скан префиксов из айпи", func() {
+			myWindow.SetContent(scanContent)
+		})
+		menuLayout := container.NewVBox(
+			menuTitle,
+			container.NewSpacer(),
+			btnCrash,
+			btnScan,
+			container.NewSpacer(),
+		)
+		myWindow.SetContent(menuLayout)
+	}
+
+	showMenu()
 	myWindow.Resize(fyne.NewSize(450, 550))
 	myWindow.ShowAndRun()
 }
