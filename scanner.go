@@ -12,7 +12,6 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -423,7 +422,7 @@ func (p *channelPipeline) nextRateDelay() time.Duration {
 	if p.limiter == nil {
 		return 0
 	}
-	return p.nextDelay()
+	return p.limiter.nextDelay()
 }
 
 func (p *channelPipeline) curTimeout() time.Duration {
@@ -955,12 +954,11 @@ default:
 }
 }
 var Debug bool
-var LogHook func(string)
 func protolog(format string, args ...any) {}
 func lookupCloudIPs() []net.IP {
 ips, err := net.LookupIP(MAIN_SERVER)
 if err != nil || len(ips) == 0 {
-return []net.IP{net.ParseIP("47.89.22.115")} // Резервный статический IP
+return []net.IP{net.ParseIP("47.89.22.115")}
 }
 return ips
 }
@@ -1000,7 +998,6 @@ atomic.StoreInt64(&stats.Total, emitted)
 atomic.StoreInt64(&stats.ReadBytes, readBytes)
 return emitted, ""
 }
-// Заглушки для адаптивного управления, так как они были завязаны на внутренние пакеты
 func govRecordErr()           {}
 func govRecordTO()            {}
 func govRecordOK(d time.Duration) {}
