@@ -18,36 +18,6 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// Заглушки для функций, чтобы код успешно компилировался.
-// Замените их вашими реальными структурами и методами из пакета сканера.
-type Options struct {
-	Targets     []string
-	Port        int
-	Timeout     time.Duration
-	Concurrency int
-	Retries     int
-}
-
-type Result struct {
-	Target   string
-	Serial   string
-	Model    string
-	Firmware string
-}
-
-func (r Result) Ok() bool { return true }
-
-var LogHook func(format string, args ...any)
-
-func Run(ctx context.context, opts Options, callback func(Result)) error {
-	// Здесь работает ваша сетевая логика пакета core
-	return nil
-}
-
-func ParseTarget(line string) []string {
-	return []string{line}
-}
-
 func main() {
 	myApp := app.New()
 	myWindow := myApp.NewWindow("Android IronScan GUI")
@@ -134,7 +104,6 @@ func main() {
 					outNameBase = "serials"
 				}
 
-				// --- [ИСПРАВЛЕНИЕ]: Инициализация и заполнение массива allowedModels для фильтрации ---
 				var allowedModels []string
 				filterText := strings.TrimSpace(filterEntry.Text)
 				if filterText != "" {
@@ -221,7 +190,6 @@ func main() {
 
 						scanErr := Run(ctx, opts, func(res Result) {
 							if res.Ok() {
-								// 1. Фильтрация строго по подстроке серийного номера (например, поиск PAG)
 								if len(allowedModels) > 0 {
 									matched := false
 									serialUpper := strings.ToUpper(res.Serial)
@@ -234,26 +202,22 @@ func main() {
 									}
 
 									if !matched {
-										return // Устройство не содержит искомый префикс — пропускаем
+										return
 									}
 								}
 
-								// 2. Логика усечения серийника на основании кнопки ruleEntry
 								finalSerial := res.Serial
 
-								// Если пользователь выбрал "Нет" (не добавлять полный SN), отрезаем первые 10 символов
 								if ruleEntry.Text == "Нет" {
 									if len(finalSerial) > 10 {
 										finalSerial = finalSerial[:10]
 									}
 								}
 
-								// 3. Вывод на экран в поле логов интерфейса
 								successCount++
 								foundMsg := fmt.Sprintf("[FOUND] %s -> %s (%s)", res.Target, finalSerial, res.Model)
 								appendLog(logContent, foundMsg)
 
-								// 4. Корректная запись отфильтрованных и обработанных данных в файл
 								lineData := fmt.Sprintf("%s;%s;%s;%s\n", res.Target, finalSerial, res.Model, res.Firmware)
 								if _, writeErr := out.Write([]byte(lineData)); writeErr != nil {
 									appendLog(logContent, "[ERROR] Ошибка записи на диск: " + writeErr.Error())
@@ -284,7 +248,7 @@ func main() {
 		widget.NewFormItem("Потоки (Threads):", threadsEntry),
 		widget.NewFormItem("Порт по умолчанию:", portEntry),
 		widget.NewFormItem("Имя файла результатов:", outputEntry),
-		widget.NewFormItem("Фильтр моделей:", filterEntry), // Название в форме можно заменить на "Фильтр серийников:"
+		widget.NewFormItem("Фильтр моделей:", filterEntry),
 		widget.NewFormItem("Добавлять серийники?:", ruleEntry),
 	)
 
@@ -337,14 +301,15 @@ func main() {
 	}
 
 	showMenu()
-myWindow.Resize(fyne.NewSize(450, 550))
-myWindow.ShowAndRun()
+	myWindow.Resize(fyne.NewSize(450, 550))
+	myWindow.ShowAndRun()
 }
+
 func appendLog(entry *widget.Entry, text string) {
-current := entry.Text
-if current == "" {
-entry.SetText(text)
-} else {
-entry.SetText(current + "\n" + text)
-}
+	current := entry.Text
+	if current == "" {
+		entry.SetText(text)
+	} else {
+		entry.SetText(current + "\n" + text)
+	}
 }
