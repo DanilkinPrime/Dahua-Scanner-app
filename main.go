@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 )
@@ -239,10 +240,10 @@ func main() {
 		})
 		menuLayout := container.NewVBox(
 			menuTitle,
-			container.NewSpacer(),
+			layout.NewSpacer(),
 			btnCrash,
 			btnScan,
-			container.NewSpacer(),
+			layout.NewSpacer(),
 		)
 		myWindow.SetContent(menuLayout)
 	}
