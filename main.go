@@ -232,7 +232,7 @@ func main() {
 
 	showMenu = func() {
 		menuTitle := widget.NewLabelWithStyle("Выберите режим работы", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-		btnCrash := widget.NewButton("1. Крушим камери", func() {
+		btnCrash := widget.NewButton("1. Скан", func() {
 			myWindow.SetContent(crashContent)
 		})
 		btnScan := widget.NewButton("2. Скан префиксов из айпи", func() {
