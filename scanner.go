@@ -815,29 +815,29 @@ p.conn.WriteTo(init, &net.UDPAddr{IP: ip, Port: port})
 p.conn.Write(init)
 }
 }
-func (p channelPipeline) govern() {
-total := p.resolvedCycle + p.expiredCycle
-if total > 0 {
-share := float64(p.expiredCycle) / float64(total)
-if p.emaSet {
-p.expiredEMA = p.expiredEMA7/8 + share/8
-} else {
-p.expiredEMA, p.emaSet = share, true
-}
-}
-switch {
-case p.emaSet && p.expiredEMA < 0.02:
-p.window += GOV_GROW
-if p.window > W_MAX {
-p.window = W_MAX
-}
-case p.emaSet && p.expiredEMA > 0.10:
-p.window -= GOV_SHRINK
-if p.window < W_MIN {
-p.window = W_MIN
-}
-}
-p.resolvedCycle, p.expiredCycle = 0, 0
+func (p *channelPipeline) govern() {
+	total := p.resolvedCycle + p.expiredCycle
+	if total > 0 {
+		share := float64(p.expiredCycle) / float64(total)
+		if p.emaSet {
+			p.expiredEMA = (p.expiredEMA * 7 / 8) + (share / 8)
+		} else {
+			p.expiredEMA, p.emaSet = share, true
+		}
+	}
+	switch {
+	case p.emaSet && p.expiredEMA < 0.02:
+		p.window += GOV_GROW
+		if p.window > W_MAX {
+			p.window = W_MAX
+		}
+	case p.emaSet && p.expiredEMA > 0.10:
+		p.window -= GOV_SHRINK
+		if p.window < W_MIN {
+			p.window = W_MIN
+		}
+	}
+	p.resolvedCycle, p.expiredCycle = 0, 0
 }
 func (p *channelPipeline) run(ctx context.Context, jobs <-chan string, aliveCh chan<- string, stats *ScanStats) {
 p.ctx = ctx
