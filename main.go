@@ -128,7 +128,6 @@ func main() {
 						continue 
 					}
 
-					// Вызов функции ParseTarget напрямую из сканера (Source 2)
 					parsedLines := ParseTarget(line)
 					if len(parsedLines) == 0 {
 						appendLog(logContent, fmt.Sprintf("[WARN] Строка %d пропущена парсером: %s", i+1, line))
@@ -175,17 +174,15 @@ func main() {
 					go func(out fyne.URIWriteCloser) {
 						defer out.Close()
 
-						// Используем реальную структуру Options из сканера (Source 2)
 						opts := Options{
 							Targets:     finalTargets,
 							Port:        basePort,
 							Timeout:     2 * time.Second,
 							Concurrency: concurrency,
 							Retries:     1,
-							Seed:        0, // Перемешивание Фейстеля выберет seed автоматически
+							Seed:        0,
 						}
 
-						// Подключаем логирование к хуку сканера
 						LogHook = func(format string, args ...any) {
 							msg := fmt.Sprintf(format, args...)
 							appendLog(logContent, "[CORE] " + msg)
@@ -194,7 +191,6 @@ func main() {
 						ctx := context.Background()
 						successCount := 0
 
-						// Вызов функции Run напрямую из сканера (Source 2)
 						scanErr := Run(ctx, opts, func(res Result) {
 							if res.Ok() {
 								if len(allowedModels) > 0 {
@@ -265,7 +261,7 @@ func main() {
 	)
 
 	// -------------------------------------------------------------
-	// КОМПОНЕНТЫ ДЛЯ РЕЖИМА 1 (Скан Облака по Префиксу)
+	// КОМПОНЕНТЫ ДЛЯ РЕЖИМА 1 (Скан Облака по Префиксу + Запись txt)
 	// -------------------------------------------------------------
 	crashTitle := widget.NewLabelWithStyle("Режим 1: Сканирование Облака Dahua", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	crashStatus := widget.NewLabel("Ожидание ввода параметров...")
@@ -275,11 +271,11 @@ func main() {
 	prefixEntry.SetPlaceHolder("Впишите 10 символов префикса")
 
 	cloudWorkersEntry := widget.NewEntry()
-	cloudWorkersEntry.SetText("64")
+	cloudWorkersEntry.SetText("200")
 	cloudWorkersEntry.SetPlaceHolder("Потоки (UDP сокеты)")
 
 	cloudRpsEntry := widget.NewEntry()
-	cloudRpsEntry.SetText("2000")
+	cloudRpsEntry.SetText("500")
 	cloudRpsEntry.SetPlaceHolder("RPS Лимит запросов в сек")
 
 	crashLog := widget.NewMultiLineEntry()
@@ -288,6 +284,7 @@ func main() {
 
 	backToMenuBtn2 := widget.NewButton("Назад в меню", func() { showMenu() })
 
+	// Запуск Облачного Сканирования с сохранением в txt
 	btnStartCloudScan := widget.NewButton("Запустить Облачный Скан", func() {
 		prefix := strings.TrimSpace(prefixEntry.Text)
 		if len(prefix) != 10 {
@@ -298,35 +295,53 @@ func main() {
 		workers, err := strconv.Atoi(strings.TrimSpace(cloudWorkersEntry.Text))
 		if err != nil || workers < 1 {
 			workers = 50
-			cloudWorkersEntry.SetText("50")
 		}
 
 		rps, err := strconv.Atoi(strings.TrimSpace(cloudRpsEntry.Text))
 		if err != nil || rps < 1 {
 			rps = 100
-			cloudRpsEntry.SetText("100")
 		}
 
-		crashStatus.SetText("Сканирование запущено...")
-		crashLog.SetText("[SYSTEM] Инициализация ScanCloudPrefix...\n")
+		// Сначала просим пользователя указать файл для сохранения реальных серийных номеров
+		timestamp := time.Now().Format("20060102_150405")
+		defaultCloudFile := fmt.Sprintf("cloud_found_%s_%s.txt", prefix, timestamp)
 
-		go func() {
-			ctx := context.Background()
+		saveCloudDialog := dialog.NewFileSave(func(outFile fyne.URIWriteCloser, err error) {
+			if err != nil {
+				crashStatus.SetText("Ошибка создания файла: " + err.Error())
+				return
+			}
+			if outFile == nil {
+				crashStatus.SetText("Сканирование отменено (не выбран файл)")
+				return
+			}
 
-			// Вызов функции ScanCloudPrefix из Source 1
-			stats, err := ScanCloudPrefix(ctx, prefix, workers, rps, func(serial string) {
-				appendLog(crashLog, fmt.Sprintf("[ALIVE] Найдено устройство: %s", serial))
-			})
-
+			crashStatus.SetText("Сканирование запущено...")
+crashLog.SetText("[SYSTEM] Выходной файл создан. Инициализация ScanCloudPrefix...\n")
+// Запускаем сам скан в фоновом потоке
+go func(out io.WriteCloser) {
+defer out.Close()
+ctx := context.Background()
+stats, err := ScanCloudPrefix(ctx, prefix, workers, rps, func(realSerial string) {
+// 1. Отображаем реальный найденный серийник в GUI логе
+appendLog(crashLog, fmt.Sprintf("[ALIVE] Найдена камера: %s", realSerial))
+// 2. Сразу записываем реальный серийный номер в txt файл на диск
+lineData := fmt.Sprintf("%s\n", realSerial)
+_, _ = out.Write([]byte(lineData))
+})
 if err != nil {
-crashStatus.SetText("Ошибка запуска!")
+crashStatus.SetText("Ошибка запуска сканера!")
 appendLog(crashLog, "[ERROR] Прервано: " + err.Error())
 return
 }
-crashStatus.SetText("Сканирование завершено успешно!")
-appendLog(crashLog, fmt.Sprintf("\n[FINISH] Всего проверено: %d | Живых: %d | Мертвых: %d",
-stats.Checked, stats.Alive, stats.Dead))
-}()
+// Вывод результатов по окончании
+crashStatus.SetText("Готово!")
+appendLog(crashLog, fmt.Sprintf("\n[FINISH] Скан завершен.\nВсего проверено комбинаций: %d\nНайдено живых камер: %d\nРезультаты сохранены.",
+stats.Checked, stats.Alive))
+}(outFile)
+}, myWindow)
+saveCloudDialog.SetFileName(defaultCloudFile)
+saveCloudDialog.Show()
 })
 cloudForm := widget.NewForm(
 widget.NewFormItem("Префикс (10 симв.):", prefixEntry),
