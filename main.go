@@ -46,17 +46,6 @@ func main() {
 	logContent := widget.NewMultiLineEntry()
 	logContent.SetPlaceHolder("Здесь будут отображаться шаги работы...")
 	logContent.Disable()
-    type whiteTextTheme struct {
-	    fyne.Theme
-    }
-    func (m *whiteTextTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) image.Color {
-	    if name == theme.ColorNameForeground || name == theme.ColorNameDisabledBackground {
-		    return image.NewUniform(color.RGBA{R: 255, G: 255, B: 255, A: 255})
-	}
-	return m.Theme.Color(name, variant)
-}
-
-    logContentStyled := container.NewThemeOverride(logContent, &whiteTextTheme{Theme: fyne.CurrentApp().Settings().Theme()})
 	backToMenuBtn1 := widget.NewButton("Назад в меню", func() {
 		showMenu()
 	})
