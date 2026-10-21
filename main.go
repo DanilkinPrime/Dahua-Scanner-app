@@ -24,6 +24,9 @@ func main() {
 
 	var showMenu func()
 
+	// -------------------------------------------------------------
+	// КОМПОНЕНТЫ ДЛЯ РЕЖИМА 2 (Скан префиксов из айпи)
+	// -------------------------------------------------------------
 	titleLabel := widget.NewLabelWithStyle("Железный Сканер Dahua", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	statusLabel := widget.NewLabel("Настройки сканера")
 
@@ -46,9 +49,8 @@ func main() {
 	logContent := widget.NewMultiLineEntry()
 	logContent.SetPlaceHolder("Здесь будут отображаться шаги работы...")
 	logContent.Disable()
-	backToMenuBtn1 := widget.NewButton("Назад в меню", func() {
-		showMenu()
-	})
+
+	backToMenuBtn1 := widget.NewButton("Назад в меню", func() { showMenu() })
 
 	var ruleEntry *widget.Button
 	ruleEntry = widget.NewButton("Нет", func() {
@@ -123,9 +125,10 @@ func main() {
 				for i, line := range lines {
 					line = strings.TrimSpace(line)
 					if line == "" || strings.HasPrefix(line, "#") {
-						continue
+						continue 
 					}
 
+					// Вызов функции ParseTarget напрямую из сканера (Source 2)
 					parsedLines := ParseTarget(line)
 					if len(parsedLines) == 0 {
 						appendLog(logContent, fmt.Sprintf("[WARN] Строка %d пропущена парсером: %s", i+1, line))
@@ -146,6 +149,7 @@ func main() {
 				}
 
 				appendLog(logContent, fmt.Sprintf("[SYSTEM] Анализ завершен. Найдено валидных целей: %d", len(finalTargets)))
+
 				if len(finalTargets) == 0 {
 					statusLabel.SetText("Валидные IP не найдены")
 					appendLog(logContent, "[ERROR] Сканирование невозможно: список целей пуст.")
@@ -171,14 +175,17 @@ func main() {
 					go func(out fyne.URIWriteCloser) {
 						defer out.Close()
 
+						// Используем реальную структуру Options из сканера (Source 2)
 						opts := Options{
 							Targets:     finalTargets,
 							Port:        basePort,
 							Timeout:     2 * time.Second,
 							Concurrency: concurrency,
 							Retries:     1,
+							Seed:        0, // Перемешивание Фейстеля выберет seed автоматически
 						}
 
+						// Подключаем логирование к хуку сканера
 						LogHook = func(format string, args ...any) {
 							msg := fmt.Sprintf(format, args...)
 							appendLog(logContent, "[CORE] " + msg)
@@ -187,26 +194,24 @@ func main() {
 						ctx := context.Background()
 						successCount := 0
 
+						// Вызов функции Run напрямую из сканера (Source 2)
 						scanErr := Run(ctx, opts, func(res Result) {
 							if res.Ok() {
 								if len(allowedModels) > 0 {
 									matched := false
 									serialUpper := strings.ToUpper(res.Serial)
-
 									for _, allowed := range allowedModels {
 										if strings.Contains(serialUpper, allowed) {
 											matched = true
 											break
 										}
 									}
-
 									if !matched {
 										return
 									}
 								}
 
 								finalSerial := res.Serial
-
 								if ruleEntry.Text == "Нет" {
 									if len(finalSerial) > 10 {
 										finalSerial = finalSerial[:10]
@@ -233,7 +238,6 @@ func main() {
 						}
 					}(outFile)
 				}, myWindow)
-
 				saveDialog.SetFileName(defaultFileName)
 				saveDialog.Show()
 			}(reader)
@@ -260,55 +264,112 @@ func main() {
 		backToMenuBtn1,
 	)
 
-	crashTitle := widget.NewLabelWithStyle("Режим: Деструкция / Эксплуатация", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	crashStatus := widget.NewLabel("Ожидание выбора целей...")
+	// -------------------------------------------------------------
+	// КОМПОНЕНТЫ ДЛЯ РЕЖИМА 1 (Скан Облака по Префиксу)
+	// -------------------------------------------------------------
+	crashTitle := widget.NewLabelWithStyle("Режим 1: Сканирование Облака Dahua", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	crashStatus := widget.NewLabel("Ожидание ввода параметров...")
+
+	prefixEntry := widget.NewEntry()
+	prefixEntry.SetText("PAG1AA")
+	prefixEntry.SetPlaceHolder("Впишите 10 символов префикса")
+
+	cloudWorkersEntry := widget.NewEntry()
+	cloudWorkersEntry.SetText("64")
+	cloudWorkersEntry.SetPlaceHolder("Потоки (UDP сокеты)")
+
+	cloudRpsEntry := widget.NewEntry()
+	cloudRpsEntry.SetText("2000")
+	cloudRpsEntry.SetPlaceHolder("RPS Лимит запросов в сек")
+
 	crashLog := widget.NewMultiLineEntry()
-	crashLog.SetPlaceHolder("Логи деструктивных действий будут здесь...")
+	crashLog.SetPlaceHolder("Логи сканирования облака...")
 	crashLog.Disable()
 
-	backToMenuBtn2 := widget.NewButton("Назад в меню", func() {
-		showMenu()
-	})
+	backToMenuBtn2 := widget.NewButton("Назад в меню", func() { showMenu() })
 
-	crashContent := container.NewVBox(
-		crashTitle,
-		widget.NewButton("Запустить Сплоит / Атаку", func() {
-			crashStatus.SetText("Атака запущена...")
-			crashLog.SetText("[CRITICAL] Посылаем payload...\n")
-		}),
-		crashStatus,
-		crashLog,
-		backToMenuBtn2,
-	)
+	btnStartCloudScan := widget.NewButton("Запустить Облачный Скан", func() {
+		prefix := strings.TrimSpace(prefixEntry.Text)
+		if len(prefix) != 10 {
+			crashStatus.SetText("Ошибка: префикс должен содержать 10 символов!")
+			return
+		}
 
-	showMenu = func() {
-		menuTitle := widget.NewLabelWithStyle("Выберите режим работы", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-		btnCrash := widget.NewButton("1. Скан", func() {
-			myWindow.SetContent(crashContent)
-		})
-		btnScan := widget.NewButton("2. Скан префиксов из айпи", func() {
-			myWindow.SetContent(scanContent)
-		})
-		menuLayout := container.NewVBox(
-			menuTitle,
-			layout.NewSpacer(),
-			btnCrash,
-			btnScan,
-			layout.NewSpacer(),
-		)
-		myWindow.SetContent(menuLayout)
-	}
+		workers, err := strconv.Atoi(strings.TrimSpace(cloudWorkersEntry.Text))
+		if err != nil || workers < 1 {
+			workers = 50
+			cloudWorkersEntry.SetText("50")
+		}
 
-	showMenu()
-	myWindow.Resize(fyne.NewSize(450, 550))
-	myWindow.ShowAndRun()
+		rps, err := strconv.Atoi(strings.TrimSpace(cloudRpsEntry.Text))
+		if err != nil || rps < 1 {
+			rps = 100
+			cloudRpsEntry.SetText("100")
+		}
+
+		crashStatus.SetText("Сканирование запущено...")
+		crashLog.SetText("[SYSTEM] Инициализация ScanCloudPrefix...\n")
+
+		go func() {
+			ctx := context.Background()
+
+			// Вызов функции ScanCloudPrefix из Source 1
+			stats, err := ScanCloudPrefix(ctx, prefix, workers, rps, func(serial string) {
+				appendLog(crashLog, fmt.Sprintf("[ALIVE] Найдено устройство: %s", serial))
+			})
+
+if err != nil {
+crashStatus.SetText("Ошибка запуска!")
+appendLog(crashLog, "[ERROR] Прервано: " + err.Error())
+return
 }
-
+crashStatus.SetText("Сканирование завершено успешно!")
+appendLog(crashLog, fmt.Sprintf("\n[FINISH] Всего проверено: %d | Живых: %d | Мертвых: %d",
+stats.Checked, stats.Alive, stats.Dead))
+}()
+})
+cloudForm := widget.NewForm(
+widget.NewFormItem("Префикс (10 симв.):", prefixEntry),
+widget.NewFormItem("Воркеры (Сокеты):", cloudWorkersEntry),
+widget.NewFormItem("Лимит RPS:", cloudRpsEntry),
+)
+crashContent := container.NewVBox(
+crashTitle,
+cloudForm,
+btnStartCloudScan,
+crashStatus,
+crashLog,
+backToMenuBtn2,
+)
+// -------------------------------------------------------------
+// МЕНЮ НАВИГАЦИИ
+// -------------------------------------------------------------
+showMenu = func() {
+menuTitle := widget.NewLabelWithStyle("Выберите режим работы", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+btnCrash := widget.NewButton("1. Скан Облака (ScanCloudPrefix)", func() {
+myWindow.SetContent(crashContent)
+})
+btnScan := widget.NewButton("2. Скан префиксов из айпи", func() {
+myWindow.SetContent(scanContent)
+})
+menuLayout := container.NewVBox(
+menuTitle,
+layout.NewSpacer(),
+btnCrash,
+btnScan,
+layout.NewSpacer(),
+)
+myWindow.SetContent(menuLayout)
+}
+showMenu()
+myWindow.Resize(fyne.NewSize(450, 550))
+myWindow.ShowAndRun()
+}
 func appendLog(entry *widget.Entry, text string) {
-	current := entry.Text
-	if current == "" {
-		entry.SetText(text)
-	} else {
-		entry.SetText(current + "\n" + text)
-	}
+current := entry.Text
+if current == "" {
+entry.SetText(text)
+} else {
+entry.SetText(current + "\n" + text)
+}
 }
