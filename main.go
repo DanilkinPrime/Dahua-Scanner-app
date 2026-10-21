@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -19,35 +18,12 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// --- ЗАГЛУШКИ ДЛЯ СТАРОГО СКАНИРОВАНИЯ ИЗ АЙПИ (РЕЖИМ 2) ---
-type Options struct {
-	Targets     []string
-	Port        int
-	Timeout     time.Duration
-	Concurrency int
-	Retries     int
-}
-type Result struct {
-	Target   string
-	Serial   string
-	Model    string
-	Firmware string
-}
-func (r Result) Ok() bool { return r.Serial != "" }
-var LogHook func(format string, args ...any)
-func ParseTarget(line string) []string { return []string{line} }
-func Run(ctx context.Background, opts Options, cb func(Result)) error { return nil }
-
-// --- ОСНОВНОЙ КОД GUI ---
 func main() {
 	myApp := app.New()
 	myWindow := myApp.NewWindow("Android IronScan GUI")
 
 	var showMenu func()
 
-	// -------------------------------------------------------------------------
-	// НАСТРОЙКИ ДЛЯ РЕЖИМА "2. Скан префиксов из айпи"
-	// -------------------------------------------------------------------------
 	titleLabel := widget.NewLabelWithStyle("Железный Сканер Dahua", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	statusLabel := widget.NewLabel("Настройки сканера")
 
@@ -102,7 +78,7 @@ func main() {
 				data, err := io.ReadAll(r)
 				if err != nil {
 					statusLabel.SetText("Не удалось прочитать файл")
-					appendLog(logContent, "[ERROR] Ошибка io.ReadAll: "+err.Error())
+					appendLog(logContent, "[ERROR] Ошибка io.ReadAll: " + err.Error())
 					return
 				}
 				appendLog(logContent, fmt.Sprintf("[SYSTEM] Прочитано %d байт. Очистка строк от символов \\r...", len(data)))
@@ -284,149 +260,55 @@ func main() {
 		backToMenuBtn1,
 	)
 
-	// -------------------------------------------------------------------------
-	// ИНТЕГРАЦИЯ ДЛЯ РЕЖИМА "1. Скан" (Пакетный перебор префиксов из .txt)
-	// -------------------------------------------------------------------------
-	crashTitle := widget.NewLabelWithStyle("Режим: Сканирование Облака Dahua (Файл)", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	crashStatus := widget.NewLabel("Ожидание выбора файла с префиксами...")
-
-	cloudWorkersEntry := widget.NewEntry()
-	cloudWorkersEntry.SetText("64")
-	cloudWorkersEntry.SetPlaceHolder("Количество параллельных сокетов")
-
-	cloudRpsEntry := widget.NewEntry()
-	cloudRpsEntry.SetText("2000")
-	cloudRpsEntry.SetPlaceHolder("Лимит RPS")
-
-	cloudForm := widget.NewForm(
-		widget.NewFormItem("UDP Воркеры:", cloudWorkersEntry),
-		widget.NewFormItem("Лимит RPS:", cloudRpsEntry),
-	)
-
+	crashTitle := widget.NewLabelWithStyle("Режим: Деструкция / Эксплуатация", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	crashStatus := widget.NewLabel("Ожидание выбора целей...")
 	crashLog := widget.NewMultiLineEntry()
-	crashLog.SetPlaceHolder("Логи последовательного сканирования префиксов...")
+	crashLog.SetPlaceHolder("Логи деструктивных действий будут здесь...")
 	crashLog.Disable()
 
 	backToMenuBtn2 := widget.NewButton("Назад в меню", func() {
 		showMenu()
 	})
 
-	// Логика кнопки пакетного запуска
-	runCloudScanBtn := widget.NewButton("Выбрать файл .txt и запустить скан", func() {
-		workers, err := strconv.Atoi(strings.TrimSpace(cloudWorkersEntry.Text))
-		if err != nil || workers < 1 {
-			workers = 64
-		}
+	crashContent := container.NewVBox(
+		crashTitle,
+		widget.NewButton("Запустить Сплоит / Атаку", func() {
+			crashStatus.SetText("Атака запущена...")
+			crashLog.SetText("[CRITICAL] Посылаем payload...\n")
+		}),
+		crashStatus,
+		crashLog,
+		backToMenuBtn2,
+	)
 
-		rps, err := strconv.Atoi(strings.TrimSpace(cloudRpsEntry.Text))
-		if err != nil || rps < 1 {
-			rps = 2000
-		}
+	showMenu = func() {
+		menuTitle := widget.NewLabelWithStyle("Выберите режим работы", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+		btnCrash := widget.NewButton("1. Скан", func() {
+			myWindow.SetContent(crashContent)
+		})
+		btnScan := widget.NewButton("2. Скан префиксов из айпи", func() {
+			myWindow.SetContent(scanContent)
+		})
+		menuLayout := container.NewVBox(
+			menuTitle,
+			layout.NewSpacer(),
+			btnCrash,
+			btnScan,
+			layout.NewSpacer(),
+		)
+		myWindow.SetContent(menuLayout)
+	}
 
-		// ШАГ 1: Открываем диалог для выбора входящего файла с префиксами
-		openFileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
-			if err != nil || reader == nil {
-crashStatus.SetText("Выбор файла с префиксами отменен")
-return
+	showMenu()
+	myWindow.Resize(fyne.NewSize(450, 550))
+	myWindow.ShowAndRun()
 }
-// Читаем префиксы из выбранного файла
-data, err := io.ReadAll(reader)
-reader.Close()
-if err != nil {
-crashStatus.SetText("Не удалось прочитать файл префиксов")
-return
-}
-// Парсим строки файла, очищаем их и собираем валидные 10-значные префиксы
-cleanText := strings.ReplaceAll(string(data), "\r", "")
-lines := strings.Split(cleanText, "\n")
-var prefixesToScan []string
-for _, line := range lines {
-line = strings.ToUpper(strings.TrimSpace(line))
-if line != "" && len(line) == 10 && !strings.HasPrefix(line, "#") {
-prefixesToScan = append(prefixesToScan, line)
-}
-}
-if len(prefixesToScan) == 0 {
-crashStatus.SetText("В файле нет корректных 10-значных префиксов!")
-return
-}
-// ШАГ 2: Сразу открываем диалог сохранения результатов
-saveCloudDialog := dialog.NewFileSave(func(outFile fyne.URIWriteCloser, err error) {
-if err != nil || outFile == nil {
-crashStatus.SetText("Сохранение результатов отменено")
-return
-}
-crashLog.SetText(fmt.Sprintf("[SYSTEM] Найдено префиксов для обработки: %d\n", len(prefixesToScan)))
-// Запуск конвейера сканирования в горутине
-go func(out fyne.URIWriteCloser) {
-defer out.Close()
-ctx, cancel := context.WithCancel(context.Background())
-defer cancel()
-// Общий колбэк для записи найденных камер на диск
-onAliveFound := func(serial string) {
-out.Write([]byte(serial + "\n"))
-appendLog(crashLog, fmt.Sprintf("[FOUND] Найдена камера: %s", serial))
-}
-var totalAlive int64
-// ПОСЛЕДОВАТЕЛЬНЫЙ ПЕРЕБОР КАЖДОГО ПРЕФИКСА
-for idx, currentPrefix := range prefixesToScan {
-crashStatus.SetText(fmt.Sprintf("Сканирование префикса %d/%d: %s", idx+1, len(prefixesToScan), currentPrefix))
-appendLog(crashLog, fmt.Sprintf("[PROCESS] Начинаем перебор суффиксов для префикса: %s", currentPrefix))
-// Вызываем ScanCloudPrefix из вашего scanner.go
-// Если у вас scanner.go лежит в package main, сотрите приставку "scanner."
-stats, scanErr := ScanCloudPrefix(ctx, currentPrefix, workers, rps, onAliveFound)
-if scanErr != nil {
-appendLog(crashLog, fmt.Sprintf("[WARN] Ошибка на префиксе %s: %v", currentPrefix, scanErr))
-} else {
-totalAlive += stats.Alive
-appendLog(crashLog, fmt.Sprintf("[SUCCESS] Префикс %s завершен. Найдено тут: %d", currentPrefix, stats.Alive))
-}
-}
-crashStatus.SetText(fmt.Sprintf("Всё готово! Всего найдено камер: %d", totalAlive))
-appendLog(crashLog, fmt.Sprintf("[SYSTEM] Пакетное сканирование полностью завершено. Всего живых камер: %d", totalAlive))
-}(outFile)
-}, myWindow)
-saveCloudDialog.SetFileName("alive_cloud_cameras.txt")
-saveCloudDialog.Show()
-}, myWindow)
-openFileDialog.SetFilter(storage.NewExtensionFileFilter([]string{".txt"}))
-openFileDialog.Show()
-})
-crashContent := container.NewVBox(
-crashTitle,
-cloudForm,
-runCloudScanBtn,
-crashStatus,
-crashLog,
-backToMenuBtn2,
-)
-// --- МЕНЮ ПЕРЕКЛЮЧЕНИЯ РЕЖИМОВ ---
-showMenu = func() {
-menuTitle := widget.NewLabelWithStyle("Выберите режим работы", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-btnCrash := widget.NewButton("1. Скан списка префиксов из .txt", func() {
-myWindow.SetContent(crashContent)
-})
-btnScan := widget.NewButton("2. Скан префиксов из айпи", func() {
-myWindow.SetContent(scanContent)
-})
-menuLayout := container.NewVBox(
-menuTitle,
-layout.NewSpacer(),
-btnCrash,
-btnScan,
-layout.NewSpacer(),
-)
-myWindow.SetContent(menuLayout)
-}
-showMenu()
-myWindow.Resize(fyne.NewSize(450, 600))
-myWindow.ShowAndRun()
-}
+
 func appendLog(entry *widget.Entry, text string) {
-current := entry.Text
-if current == "" {
-entry.SetText(text)
-} else {
-entry.SetText(current + "\n" + text)
-}
+	current := entry.Text
+	if current == "" {
+		entry.SetText(text)
+	} else {
+		entry.SetText(current + "\n" + text)
+	}
 }
